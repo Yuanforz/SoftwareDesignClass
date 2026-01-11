@@ -123,16 +123,6 @@ class WebSocketServer:
             CORSStaticFiles(directory="live2d-models"),
             name="live2d-models",
         )
-        self.app.mount(
-            "/bg",
-            CORSStaticFiles(directory="backgrounds"),
-            name="backgrounds",
-        )
-        self.app.mount(
-            "/avatars",
-            AvatarStaticFiles(directory="avatars"),
-            name="avatars",
-        )
 
         # Mount main frontend last (as catch-all)
         self.app.mount(
