@@ -251,3 +251,12 @@ LingXi-Assistant/
 - [StepFun](https://www.stepfun.com/) - 大语言模型 API
 
 ---
+
+<p align="center">
+  <strong>让学习变得更有趣、更高效！</strong><br>
+  Made with ❤️ for students and learners
+</p>
+
+<p align="center">
+  ⭐ 如果这个项目对你有帮助，请给个 Star 吧！
+</p>
