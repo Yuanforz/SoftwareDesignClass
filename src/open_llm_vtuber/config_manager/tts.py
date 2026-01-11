@@ -431,6 +431,49 @@ class MinimaxTTSConfig(I18nMixin):
     }
 
 
+class StepTTSConfig(I18nMixin):
+    """阶跃星辰 TTS 配置 - 特别适合教培场景"""
+
+    api_key: str = Field("", alias="api_key")
+    model: str = Field("step-tts-mini", alias="model")
+    voice: str = Field("elegantgentle-female", alias="voice")
+    base_url: str = Field("https://api.stepfun.com/v1/audio/speech", alias="base_url")
+    response_format: str = Field("mp3", alias="response_format")
+    speed: float = Field(1.0, alias="speed")
+    volume: float = Field(1.0, alias="volume")
+
+    DESCRIPTIONS: ClassVar[Dict[str, Description]] = {
+        "api_key": Description(
+            en="Step TTS API key",
+            zh="阶跃星辰 API 密钥"
+        ),
+        "model": Description(
+            en="Model: 'step-tts-2' (high quality) or 'step-tts-mini' (fast)",
+            zh="模型: 'step-tts-2'（高质量）或 'step-tts-mini'（快速）"
+        ),
+        "voice": Description(
+            en="Voice: 'elegantgentle-female', 'cixingnansheng', etc.",
+            zh="音色: 'elegantgentle-female'（气质温婉）, 'cixingnansheng'（磁性男声）等"
+        ),
+        "base_url": Description(
+            en="API endpoint URL",
+            zh="API 端点 URL"
+        ),
+        "response_format": Description(
+            en="Output format: wav, mp3, flac, opus, pcm",
+            zh="输出格式: wav, mp3, flac, opus, pcm"
+        ),
+        "speed": Description(
+            en="Speed (0.5-2.0, 1.0 is normal)",
+            zh="语速 (0.5-2.0, 1.0 为正常速度)"
+        ),
+        "volume": Description(
+            en="Volume (0.1-2.0, 1.0 is normal)",
+            zh="音量 (0.1-2.0, 1.0 为正常音量)"
+        ),
+    }
+
+
 class TTSConfig(I18nMixin):
     """Configuration for Text-to-Speech."""
 
@@ -450,6 +493,7 @@ class TTSConfig(I18nMixin):
         "openai_tts",  # Add openai_tts here
         "spark_tts",
         "minimax_tts",
+        "step_tts",
     ] = Field(..., alias="tts_model")
 
     azure_tts: Optional[AzureTTSConfig] = Field(None, alias="azure_tts")
@@ -471,6 +515,7 @@ class TTSConfig(I18nMixin):
     openai_tts: Optional[OpenAITTSConfig] = Field(None, alias="openai_tts")
     spark_tts: Optional[SparkTTSConfig] = Field(None, alias="spark_tts")
     minimax_tts: Optional[MinimaxTTSConfig] = Field(None, alias="minimax_tts")
+    step_tts: Optional[StepTTSConfig] = Field(None, alias="step_tts")
 
     DESCRIPTIONS: ClassVar[Dict[str, Description]] = {
         "tts_model": Description(
@@ -506,6 +551,9 @@ class TTSConfig(I18nMixin):
         "spark_tts": Description(en="Configuration for Spark TTS", zh="Spark TTS 配置"),
         "minimax_tts": Description(
             en="Configuration for Minimax TTS", zh="Minimax TTS 配置"
+        ),
+        "step_tts": Description(
+            en="Configuration for Step TTS (Stepfun)", zh="阶跃星辰 TTS 配置"
         ),
     }
 
@@ -544,5 +592,7 @@ class TTSConfig(I18nMixin):
             values.spark_tts.model_validate(values.spark_tts.model_dump())
         elif tts_model == "minimax_tts" and values.minimax_tts is not None:
             values.minimax_tts.model_validate(values.minimax_tts.model_dump())
+        elif tts_model == "step_tts" and values.step_tts is not None:
+            values.step_tts.model_validate(values.step_tts.model_dump())
 
         return values

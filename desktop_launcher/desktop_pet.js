@@ -9,6 +9,8 @@ const AppState = {
     currentHistoryUid: null,
     live2dApp: null,
     live2dModel: null,
+    // 新增：待发送的附件列表
+    pendingAttachments: [],
 };
 
 // ==================== WebSocket 连接 ====================
@@ -432,26 +434,52 @@ const inputArea = document.getElementById('input-area');
 // 发送消息
 function sendTextMessage() {
     const text = textInput.value.trim();
-    if (!text) {
-        console.warn('⚠️ 输入为空，不发送');
+    const hasAttachments = AppState.pendingAttachments.length > 0;
+    
+    if (!text && !hasAttachments) {
+        console.warn('⚠️ 输入为空且无附件，不发送');
+        return;
+    }
+    
+    // 如果有附件但没有文字，提示用户
+    if (hasAttachments && !text) {
+        console.warn('⚠️ 请输入问题后再发送');
+        textInput.placeholder = '请输入您的问题...';
+        textInput.focus();
         return;
     }
     
     console.log('📝 准备发送文本消息:', text);
     
-    // 显示用户消息
-    addMessage('user', text);
+    // 构建显示消息
+    let displayText = text;
+    if (hasAttachments) {
+        const imageCount = AppState.pendingAttachments.filter(a => a.type === 'image').length;
+        const pdfCount = AppState.pendingAttachments.filter(a => a.type === 'pdf').length;
+        const attachInfo = [];
+        if (imageCount > 0) attachInfo.push(`${imageCount}张图片`);
+        if (pdfCount > 0) attachInfo.push(`${pdfCount}个PDF`);
+        displayText = `📎 [${attachInfo.join(', ')}]\n${text}`;
+    }
     
-    // 发送到后端（必须包含 images 字段）
+    // 显示用户消息
+    addMessage('user', displayText);
+    
+    // 准备图片数据（后端只接受图片格式的base64）
+    const images = AppState.pendingAttachments.map(att => att.data);
+    
+    // 发送到后端
     sendMessage({
         type: 'text-input',
         text: text,
-        images: []
+        images: images
     });
     
-    // 清空输入框
+    // 清空输入框和附件
     textInput.value = '';
     textInput.style.height = 'auto';
+    textInput.placeholder = '输入问题... (Ctrl+/ 唤起)';
+    clearAllAttachments();
 }
 
 sendBtn.addEventListener('click', sendTextMessage);
@@ -678,6 +706,9 @@ document.querySelectorAll('.modal').forEach(modal => {
 // ==================== 文件上传 ====================
 const fileInput = document.getElementById('file-input');
 const dropIndicator = document.getElementById('drop-indicator');
+const attachmentsPreview = document.getElementById('attachments-preview');
+const attachmentsList = document.getElementById('attachments-list');
+const clearAttachmentsBtn = document.getElementById('clear-attachments-btn');
 
 function triggerFileUpload() {
     fileInput.click();
@@ -705,35 +736,167 @@ live2dSection.addEventListener('drop', (e) => {
     handleFiles(e.dataTransfer.files);
 });
 
+// 处理上传的文件（图片和PDF）
 function handleFiles(files) {
-    const images = [];
-    
     for (let file of files) {
         if (file.type.startsWith('image/')) {
+            // 处理图片
             const reader = new FileReader();
             reader.onload = (e) => {
-                images.push(e.target.result);
-                
-                // 所有图片读取完成后发送
-                if (images.length === files.length) {
-                    sendImagesMessage(images);
-                }
+                addAttachment({
+                    type: 'image',
+                    name: file.name,
+                    data: e.target.result,
+                    mimeType: file.type
+                });
             };
             reader.readAsDataURL(file);
+        } else if (file.type === 'application/pdf') {
+            // 处理 PDF - 转换为图片发送给后端
+            handlePdfFile(file);
         }
     }
 }
 
-function sendImagesMessage(images) {
-    // 显示用户上传的图片（简化显示）
-    addMessage('user', `📷 已上传 ${images.length} 张图片`);
+// 处理 PDF 文件（转换为图片）
+async function handlePdfFile(file) {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        const pdfData = e.target.result;
+        
+        // 检查是否有 PDF.js 库
+        if (typeof pdfjsLib !== 'undefined') {
+            // 使用 PDF.js 渲染 PDF 为图片
+            try {
+                const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
+                const numPages = Math.min(pdf.numPages, 10); // 限制最多10页
+                
+                for (let i = 1; i <= numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const scale = 2;
+                    const viewport = page.getViewport({ scale });
+                    
+                    const canvas = document.createElement('canvas');
+                    canvas.width = viewport.width;
+                    canvas.height = viewport.height;
+                    const ctx = canvas.getContext('2d');
+                    
+                    await page.render({ canvasContext: ctx, viewport }).promise;
+                    
+                    const imageData = canvas.toDataURL('image/png');
+                    addAttachment({
+                        type: 'pdf',
+                        name: `${file.name} (第${i}页)`,
+                        data: imageData,
+                        mimeType: 'image/png'
+                    });
+                }
+            } catch (error) {
+                console.error('❌ PDF 解析失败:', error);
+                addMessage('assistant', '❌ PDF 解析失败，请尝试上传图片格式的文件');
+            }
+        } else {
+            // 没有 PDF.js，直接将 PDF 作为 base64 发送（后端可能不支持）
+            addAttachment({
+                type: 'pdf',
+                name: file.name,
+                data: pdfData,
+                mimeType: 'application/pdf'
+            });
+            console.warn('⚠️ PDF.js 未加载，PDF 将以原始格式发送');
+        }
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+// 添加附件到待发送列表
+function addAttachment(attachment) {
+    // 检查是否已存在相同文件
+    const exists = AppState.pendingAttachments.some(a => a.name === attachment.name && a.data === attachment.data);
+    if (exists) {
+        console.warn('⚠️ 文件已存在:', attachment.name);
+        return;
+    }
     
-    // 发送到后端
-    sendMessage({
-        type: 'text-input',
-        text: '请帮我分析这些图片',
-        images: images
+    AppState.pendingAttachments.push(attachment);
+    updateAttachmentsPreview();
+    
+    // 显示输入区域，让用户输入问题
+    inputArea.classList.remove('hidden');
+    textInput.focus();
+    textInput.placeholder = '请针对上传的文件提问...';
+    
+    console.log(`📎 添加附件: ${attachment.name}, 总数: ${AppState.pendingAttachments.length}`);
+}
+
+// 更新附件预览UI
+function updateAttachmentsPreview() {
+    if (AppState.pendingAttachments.length === 0) {
+        attachmentsPreview.classList.add('hidden');
+        attachmentsList.innerHTML = '';
+        return;
+    }
+    
+    attachmentsPreview.classList.remove('hidden');
+    attachmentsList.innerHTML = '';
+    
+    AppState.pendingAttachments.forEach((att, index) => {
+        const item = document.createElement('div');
+        item.className = `attachment-item ${att.type}`;
+        
+        if (att.type === 'image') {
+            item.innerHTML = `
+                <img class="attachment-thumb" src="${att.data}" alt="${att.name}">
+                <span class="attachment-name" title="${att.name}">${truncateName(att.name, 12)}</span>
+                <button class="attachment-remove" data-index="${index}">×</button>
+            `;
+        } else {
+            item.innerHTML = `
+                <span class="attachment-icon">📄</span>
+                <span class="attachment-name" title="${att.name}">${truncateName(att.name, 12)}</span>
+                <button class="attachment-remove" data-index="${index}">×</button>
+            `;
+        }
+        
+        attachmentsList.appendChild(item);
     });
+    
+    // 绑定删除按钮事件
+    attachmentsList.querySelectorAll('.attachment-remove').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const index = parseInt(e.target.dataset.index);
+            removeAttachment(index);
+        });
+    });
+}
+
+// 移除单个附件
+function removeAttachment(index) {
+    AppState.pendingAttachments.splice(index, 1);
+    updateAttachmentsPreview();
+    
+    if (AppState.pendingAttachments.length === 0) {
+        textInput.placeholder = '输入问题... (Ctrl+/ 唤起)';
+    }
+}
+
+// 清除所有附件
+function clearAllAttachments() {
+    AppState.pendingAttachments = [];
+    updateAttachmentsPreview();
+    textInput.placeholder = '输入问题... (Ctrl+/ 唤起)';
+}
+
+// 清除附件按钮
+clearAttachmentsBtn.addEventListener('click', clearAllAttachments);
+
+// 截断文件名
+function truncateName(name, maxLen) {
+    if (name.length <= maxLen) return name;
+    const ext = name.split('.').pop();
+    const base = name.substring(0, name.lastIndexOf('.'));
+    const truncated = base.substring(0, maxLen - ext.length - 3) + '...';
+    return truncated + '.' + ext;
 }
 
 // ==================== Live2D 初始化 ====================

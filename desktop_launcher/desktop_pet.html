@@ -19,6 +19,15 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     
+    <!-- PDF.js 用于PDF转图片 (CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+    <script>
+        // 配置 PDF.js worker
+        if (typeof pdfjsLib !== 'undefined') {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+        }
+    </script>
+    
     <!-- Live2D SDK (PIXI.js + pixi-live2d-display) -->
     <!-- 使用本地文件，避免CDN MIME类型错误 -->
     <script src="./libs/pixi.min.js"></script>
@@ -34,7 +43,7 @@
             <!-- 文件拖拽提示 -->
             <div id="drop-indicator" class="hidden">
                 <div class="drop-icon">📤</div>
-                <div class="drop-text">拖放图片到这里</div>
+                <div class="drop-text">拖放图片或PDF到这里</div>
             </div>
         </div>
 
@@ -60,6 +69,12 @@
 
             <!-- 输入区域（默认隐藏） -->
             <div id="input-area" class="hidden">
+                <!-- 附件预览区域 -->
+                <div id="attachments-preview" class="hidden">
+                    <div id="attachments-list"></div>
+                    <button id="clear-attachments-btn" title="清除所有附件">✕ 清除附件</button>
+                </div>
+                
                 <div id="input-container">
                     <textarea 
                         id="text-input" 
@@ -155,8 +170,8 @@
         </div>
     </div>
 
-    <!-- 隐藏的文件上传输入框 -->
-    <input type="file" id="file-input" accept="image/*" multiple style="display: none;">
+    <!-- 隐藏的文件上传输入框（支持图片和PDF） -->
+    <input type="file" id="file-input" accept="image/*,.pdf" multiple style="display: none;">
 
     <!-- 主逻辑脚本 -->
     <script src="desktop_pet.js"></script>

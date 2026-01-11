@@ -172,6 +172,18 @@ class TTSFactory:
                 pitch=kwargs.get("pitch"),
                 speed=kwargs.get("speed"),
             )
+        elif engine_type == "step_tts":
+            from .step_tts import TTSEngine as StepTTSEngine
+
+            return StepTTSEngine(
+                api_key=kwargs.get("api_key"),
+                model=kwargs.get("model", "step-tts-mini"),
+                voice=kwargs.get("voice", "elegantgentle-female"),
+                base_url=kwargs.get("base_url", "https://api.stepfun.com/v1/audio/speech"),
+                response_format=kwargs.get("response_format", "mp3"),
+                speed=kwargs.get("speed", 1.0),
+                volume=kwargs.get("volume", 1.0),
+            )
         else:
             raise ValueError(f"Unknown TTS engine type: {engine_type}")
 

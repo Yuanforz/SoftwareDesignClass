@@ -654,3 +654,104 @@ body {
     opacity: 0.5;
     pointer-events: none;
 }
+
+/* ==================== 附件预览区域 ==================== */
+#attachments-preview {
+    padding: 10px;
+    margin-bottom: 10px;
+    background: rgba(102, 126, 234, 0.1);
+    border-radius: 10px;
+    border: 2px dashed rgba(102, 126, 234, 0.3);
+}
+
+#attachments-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.attachment-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    font-size: 12px;
+    max-width: 150px;
+}
+
+.attachment-item.image {
+    border-left: 3px solid #4caf50;
+}
+
+.attachment-item.pdf {
+    border-left: 3px solid #f44336;
+}
+
+.attachment-thumb {
+    width: 32px;
+    height: 32px;
+    object-fit: cover;
+    border-radius: 4px;
+}
+
+.attachment-icon {
+    font-size: 24px;
+}
+
+.attachment-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #333;
+}
+
+.attachment-remove {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 18px;
+    height: 18px;
+    border: none;
+    background: #f44336;
+    color: white;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.attachment-item:hover .attachment-remove {
+    opacity: 1;
+}
+
+.attachment-remove:hover {
+    background: #d32f2f;
+    transform: scale(1.1);
+}
+
+#clear-attachments-btn {
+    padding: 6px 12px;
+    border: none;
+    background: rgba(244, 67, 54, 0.1);
+    color: #f44336;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s ease;
+}
+
+#clear-attachments-btn:hover {
+    background: #f44336;
+    color: white;
+}

@@ -68,7 +68,37 @@ async def handle_conversation_trigger(
         user_input = received_data_buffers[client_uid]
         received_data_buffers[client_uid] = np.array([])
 
-    images = data.get("images")
+    # 处理图片数据：将前端发送的 base64 字符串数组转换为后端期望的格式
+    raw_images = data.get("images")
+    images = None
+    if raw_images:
+        images = []
+        for img in raw_images:
+            if isinstance(img, str):
+                # 前端发送的是 base64 data URL 字符串
+                # 需要转换为 {"source": "upload", "data": ..., "mime_type": ...} 格式
+                mime_type = "image/png"  # 默认
+                if img.startswith("data:"):
+                    # 解析 data URL 获取 MIME 类型
+                    # 格式: data:image/png;base64,xxxxx
+                    try:
+                        header = img.split(",")[0]
+                        if ":" in header and ";" in header:
+                            mime_type = header.split(":")[1].split(";")[0]
+                    except Exception:
+                        pass
+                images.append({
+                    "source": "upload",
+                    "data": img,
+                    "mime_type": mime_type
+                })
+            elif isinstance(img, dict):
+                # 已经是正确的格式
+                images.append(img)
+        
+        if images:
+            logger.info(f"Received {len(images)} images from client")
+    
     session_emoji = np.random.choice(EMOJI_LIST)
 
     group = chat_group_manager.get_client_group(client_uid)
