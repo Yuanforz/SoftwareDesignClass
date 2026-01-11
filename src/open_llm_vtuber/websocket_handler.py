@@ -21,7 +21,7 @@ from .chat_history_manager import (
     delete_history,
     get_history_list,
 )
-from .config_manager.utils import scan_config_alts_directory, scan_bg_directory
+from .config_manager.utils import scan_config_alts_directory, scan_bg_directory, update_lingxi_settings, get_lingxi_settings
 from .conversations.conversation_handler import (
     handle_conversation_trigger,
     handle_group_interrupt,
@@ -95,6 +95,9 @@ class WebSocketHandler:
             "audio-play-start": self._handle_audio_play_start,
             "request-init-config": self._handle_init_config_request,
             "heartbeat": self._handle_heartbeat,
+            # 灵犀助教特有消息
+            "update-lingxi-settings": self._handle_update_lingxi_settings,
+            "fetch-lingxi-settings": self._handle_fetch_lingxi_settings,
         }
 
     async def handle_new_connection(
@@ -193,7 +196,6 @@ class WebSocketHandler:
             tts_engine=self.default_context_cache.tts_engine,
             vad_engine=self.default_context_cache.vad_engine,
             agent_engine=self.default_context_cache.agent_engine,
-            translate_engine=self.default_context_cache.translate_engine,
             mcp_server_registery=self.default_context_cache.mcp_server_registery,
             tool_adapter=self.default_context_cache.tool_adapter,
             send_text=send_text,
@@ -610,3 +612,77 @@ class WebSocketHandler:
             await websocket.send_json({"type": "heartbeat-ack"})
         except Exception as e:
             logger.error(f"Error sending heartbeat acknowledgment: {e}")
+
+    # ==================== 灵犀助教特有功能 ====================
+    
+    async def _handle_update_lingxi_settings(
+        self, websocket: WebSocket, client_uid: str, data: WSMessage
+    ) -> None:
+        """处理更新灵犀设置的请求"""
+        try:
+            settings = data.get("settings", {})
+            old_settings = get_lingxi_settings()
+            success = update_lingxi_settings(settings)
+            
+            # 如果 TTS 引擎发生变化，需要重新初始化
+            new_tts_engine = settings.get("tts_engine")
+            if success and new_tts_engine and new_tts_engine != old_settings.get("tts_engine"):
+                await self._reinitialize_tts_engine(client_uid, str(new_tts_engine))
+            
+            await websocket.send_json({
+                "type": "lingxi-settings-updated",
+                "success": success,
+                "settings": get_lingxi_settings() if success else None
+            })
+            
+            if success:
+                logger.info(f"客户端 {client_uid} 更新了灵犀设置: {settings}")
+        except Exception as e:
+            logger.error(f"更新灵犀设置失败: {e}")
+            await websocket.send_json({
+                "type": "lingxi-settings-updated",
+                "success": False,
+                "error": str(e)
+            })
+
+    async def _handle_fetch_lingxi_settings(
+        self, websocket: WebSocket, client_uid: str, data: WSMessage
+    ) -> None:
+        """处理获取灵犀设置的请求"""
+        try:
+            settings = get_lingxi_settings()
+            await websocket.send_json({
+                "type": "lingxi-settings",
+                "settings": settings
+            })
+        except Exception as e:
+            logger.error(f"获取灵犀设置失败: {e}")
+            await websocket.send_json({
+                "type": "lingxi-settings",
+                "settings": None,
+                "error": str(e)
+            })
+
+    async def _reinitialize_tts_engine(self, client_uid: str, new_tts_engine: str) -> None:
+        """
+        重新初始化 TTS 引擎。
+        
+        当用户在设置中切换 TTS 引擎时调用此方法。
+        """
+        try:
+            ctx = self.client_contexts.get(client_uid)
+            if not ctx:
+                logger.warning(f"客户端 {client_uid} 的上下文不存在")
+                return
+            
+            # 更新配置中的 TTS 模型
+            if ctx.character_config and ctx.character_config.tts_config:
+                # 使用 model_copy 创建新配置，更新 tts_model
+                new_tts_config = ctx.character_config.tts_config.model_copy(
+                    update={"tts_model": new_tts_engine}
+                )
+                # 强制重新初始化 TTS
+                ctx.init_tts(new_tts_config)
+                logger.info(f"✅ TTS 引擎已切换为: {new_tts_engine}")
+        except Exception as e:
+            logger.error(f"重新初始化 TTS 引擎失败: {e}")

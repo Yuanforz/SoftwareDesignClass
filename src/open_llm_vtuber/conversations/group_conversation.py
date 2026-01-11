@@ -267,6 +267,13 @@ async def handle_group_member_turn(
         group_members=group_members,
     )
 
+    # 处理剩余的音频合并缓冲内容（仅在 Step TTS 合并模式下有效）
+    await tts_manager.flush_remaining(
+        live2d_model=context.live2d_model,
+        tts_engine=context.tts_engine,
+        websocket_send=current_ws_send,
+    )
+
     if tts_manager.task_list:
         await asyncio.gather(*tts_manager.task_list)
         await current_ws_send(json.dumps({"type": "backend-synth-complete"}))
@@ -374,8 +381,7 @@ async def process_member_response(
                     live2d_model=context.live2d_model,
                     tts_engine=context.tts_engine,
                     websocket_send=current_ws_send,  # Send TTS/display text directly to speaker's client
-                    tts_manager=tts_manager,
-                    translate_engine=context.translate_engine,
+                    tts_manager=tts_manager
                 )
                 full_response += response_part  # Accumulate text response
             else:

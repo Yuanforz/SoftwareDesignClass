@@ -179,3 +179,90 @@ def scan_bg_directory() -> list[str]:
             if file.endswith((".jpg", ".jpeg", ".png", ".gif")):
                 bg_files.append(file)
     return bg_files
+
+
+def update_lingxi_settings(settings: Dict[str, Any], config_path: str = "conf.yaml") -> bool:
+    """
+    更新 conf.yaml 中的 lingxi_settings 配置。
+    
+    Args:
+        settings: 要更新的设置字典，包含以下键：
+            - tts_engine: 'step_tts' 或 'edge_tts'
+            - audio_merge_enabled: bool
+            - multimodal_auto_switch: bool
+        config_path: 配置文件路径
+    
+    Returns:
+        bool: 更新是否成功
+    """
+    try:
+        # 读取当前配置
+        content = load_text_file_with_guess_encoding(config_path)
+        if not content:
+            logger.error(f"无法读取配置文件: {config_path}")
+            return False
+        
+        config_data = yaml.safe_load(content)
+        if not config_data:
+            logger.error(f"配置文件为空: {config_path}")
+            return False
+        
+        # 确保 lingxi_settings 存在
+        if "lingxi_settings" not in config_data:
+            config_data["lingxi_settings"] = {}
+        
+        # 更新设置
+        lingxi_settings = config_data["lingxi_settings"]
+        if "tts_engine" in settings:
+            lingxi_settings["tts_engine"] = settings["tts_engine"]
+        if "audio_merge_enabled" in settings:
+            lingxi_settings["audio_merge_enabled"] = settings["audio_merge_enabled"]
+        if "multimodal_auto_switch" in settings:
+            lingxi_settings["multimodal_auto_switch"] = settings["multimodal_auto_switch"]
+        
+        # 同时更新 tts_config.tts_model 以保持同步
+        if "tts_engine" in settings:
+            if "character_config" in config_data and "tts_config" in config_data["character_config"]:
+                config_data["character_config"]["tts_config"]["tts_model"] = settings["tts_engine"]
+        
+        # 保存配置
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.dump(config_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        
+        logger.info(f"灵犀设置已更新: {settings}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"更新灵犀设置失败: {e}")
+        return False
+
+
+def get_lingxi_settings(config_path: str = "conf.yaml") -> Dict[str, Any]:
+    """
+    获取 conf.yaml 中的 lingxi_settings 配置。
+    
+    Args:
+        config_path: 配置文件路径
+    
+    Returns:
+        dict: lingxi_settings 配置，如果不存在则返回默认值
+    """
+    default_settings = {
+        "tts_engine": "step_tts",
+        "audio_merge_enabled": False,
+        "audio_merge_max_sentences": 3,
+        "progressive_merge_enabled": True,  # 渐进式合并：首句立即响应，缓冲逐渐增加
+        "multimodal_auto_switch": True,
+        "multimodal_base_model": "step-2-16k",
+        "multimodal_vision_model": "step-1o-turbo-vision"
+    }
+    
+    try:
+        config_data = read_yaml(config_path)
+        if config_data and "lingxi_settings" in config_data:
+            # 合并默认设置和用户设置
+            return {**default_settings, **config_data["lingxi_settings"]}
+        return default_settings
+    except Exception as e:
+        logger.error(f"读取灵犀设置失败: {e}")
+        return default_settings

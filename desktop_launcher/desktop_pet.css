@@ -621,14 +621,31 @@ body {
     color: #999;
 }
 
-/* 设置项 */
-.setting-item {
-    padding: 12px 0;
+/* 设置分组 */
+.settings-section {
+    margin-bottom: 20px;
+    padding-bottom: 15px;
     border-bottom: 1px solid #eee;
 }
 
-.setting-item:last-child {
+.settings-section:last-of-type {
     border-bottom: none;
+    margin-bottom: 10px;
+}
+
+.settings-section h4 {
+    font-size: 14px;
+    color: #667eea;
+    margin-bottom: 12px;
+    font-weight: 600;
+}
+
+/* 设置项 */
+.setting-item {
+    padding: 10px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
 }
 
 .setting-item label {
@@ -636,6 +653,7 @@ body {
     align-items: center;
     cursor: pointer;
     font-size: 14px;
+    color: #333;
 }
 
 .setting-item input[type="checkbox"] {
@@ -643,6 +661,57 @@ body {
     width: 18px;
     height: 18px;
     cursor: pointer;
+    accent-color: #667eea;
+}
+
+.setting-item select {
+    margin-left: auto;
+    padding: 6px 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 13px;
+    background: white;
+    cursor: pointer;
+    min-width: 150px;
+}
+
+.setting-item select:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+}
+
+.setting-hint {
+    font-size: 12px;
+    color: #999;
+    margin-left: 28px;
+}
+
+/* 设置操作按钮 */
+.settings-actions {
+    padding-top: 15px;
+    text-align: center;
+}
+
+.primary-btn {
+    padding: 10px 30px;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    border: none;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.primary-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+}
+
+.primary-btn:active {
+    transform: translateY(0);
 }
 
 /* ==================== 工具类 ==================== */
@@ -754,4 +823,28 @@ body {
 #clear-attachments-btn:hover {
     background: #f44336;
     color: white;
+}
+
+/* ==================== Toast 提示 ==================== */
+@keyframes fadeInOut {
+    0% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-10px);
+    }
+    15% {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+    85% {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+    100% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-10px);
+    }
+}
+
+.toast-message {
+    pointer-events: none;
 }

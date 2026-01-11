@@ -49,7 +49,6 @@ async def process_agent_output(
     tts_engine: TTSInterface,
     websocket_send: WebSocketSend,
     tts_manager: TTSTaskManager,
-    translate_engine: Optional[Any] = None,
 ) -> str:
     """Process agent output with character information and optional translation"""
     output.display_text.name = character_config.character_name
@@ -64,7 +63,6 @@ async def process_agent_output(
                 tts_engine,
                 websocket_send,
                 tts_manager,
-                translate_engine,
             )
         elif isinstance(output, AudioOutput):
             full_response = await handle_audio_output(output, websocket_send)
@@ -87,19 +85,11 @@ async def handle_sentence_output(
     tts_engine: TTSInterface,
     websocket_send: WebSocketSend,
     tts_manager: TTSTaskManager,
-    translate_engine: Optional[Any] = None,
 ) -> str:
     """Handle sentence output type with optional translation support"""
     full_response = ""
     async for display_text, tts_text, actions in output:
         logger.debug(f"🏃 Processing output: '''{tts_text}'''...")
-
-        if translate_engine:
-            if len(re.sub(r'[\s.,!?，。！？\'"』」）】\s]+', "", tts_text)):
-                tts_text = translate_engine.translate(tts_text)
-            logger.info(f"🏃 Text after translation: '''{tts_text}'''...")
-        else:
-            logger.debug("🚫 No translation engine available. Skipping translation.")
 
         full_response += display_text.text
         await tts_manager.speak(
@@ -110,6 +100,10 @@ async def handle_sentence_output(
             tts_engine=tts_engine,
             websocket_send=websocket_send,
         )
+    
+    # 注意：flush_remaining 应在整个对话结束时调用，而不是每个 SentenceOutput 处理完后
+    # 因为 agent.chat 会产生多个 SentenceOutput，每个只包含一个句子
+    
     return full_response
 
 

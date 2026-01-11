@@ -24,6 +24,23 @@ def _get_volume_by_chunks(audio: AudioSegment, chunk_length_ms: int) -> list:
     return [volume / max_volume for volume in volumes]
 
 
+def get_audio_duration(audio_path: str) -> float:
+    """
+    获取音频文件的时长（毫秒）。
+    
+    Parameters:
+        audio_path (str): 音频文件路径
+        
+    Returns:
+        float: 音频时长（毫秒）
+    """
+    try:
+        audio = AudioSegment.from_file(audio_path)
+        return len(audio)
+    except Exception:
+        return 0
+
+
 def prepare_audio_payload(
     audio_path: str | None,
     chunk_length_ms: int = 20,

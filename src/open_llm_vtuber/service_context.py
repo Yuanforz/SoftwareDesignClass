@@ -10,7 +10,6 @@ from .asr.asr_interface import ASRInterface
 from .tts.tts_interface import TTSInterface
 from .vad.vad_interface import VADInterface
 from .agent.agents.agent_interface import AgentInterface
-from .translate.translate_interface import TranslateInterface
 
 from .mcpp.server_registry import ServerRegistry
 from .mcpp.tool_manager import ToolManager
@@ -22,7 +21,6 @@ from .asr.asr_factory import ASRFactory
 from .tts.tts_factory import TTSFactory
 from .vad.vad_factory import VADFactory
 from .agent.agent_factory import AgentFactory
-from .translate.translate_factory import TranslateFactory
 
 from .config_manager import (
     Config,
@@ -32,7 +30,6 @@ from .config_manager import (
     ASRConfig,
     TTSConfig,
     VADConfig,
-    TranslatorConfig,
     read_yaml,
     validate_config,
 )
@@ -51,9 +48,7 @@ class ServiceContext:
         self.asr_engine: ASRInterface = None
         self.tts_engine: TTSInterface = None
         self.agent_engine: AgentInterface = None
-        # translate_engine can be none if translation is disabled
         self.vad_engine: VADInterface | None = None
-        self.translate_engine: TranslateInterface | None = None
 
         self.mcp_server_registery: ServerRegistry | None = None
         self.tool_adapter: ToolAdapter | None = None
@@ -208,7 +203,6 @@ class ServiceContext:
         tts_engine: TTSInterface,
         vad_engine: VADInterface,
         agent_engine: AgentInterface,
-        translate_engine: TranslateInterface | None,
         mcp_server_registery: ServerRegistry | None = None,
         tool_adapter: ToolAdapter | None = None,
         send_text: Callable = None,
@@ -231,7 +225,6 @@ class ServiceContext:
         self.tts_engine = tts_engine
         self.vad_engine = vad_engine
         self.agent_engine = agent_engine
-        self.translate_engine = translate_engine
         # Load potentially shared components by reference
         self.mcp_server_registery = mcp_server_registery
         self.tool_adapter = tool_adapter
@@ -300,10 +293,6 @@ class ServiceContext:
         await self.init_agent(
             config.character_config.agent_config,
             config.character_config.persona_prompt,
-        )
-
-        self.init_translate(
-            config.character_config.tts_preprocessor_config.translator_config
         )
 
         # store typed config references
@@ -403,33 +392,6 @@ class ServiceContext:
         except Exception as e:
             logger.error(f"Failed to initialize agent: {e}")
             raise
-
-    def init_translate(self, translator_config: TranslatorConfig) -> None:
-        """Initialize or update the translation engine based on the configuration."""
-
-        if not translator_config.translate_audio:
-            logger.debug("Translation is disabled.")
-            return
-
-        if (
-            not self.translate_engine
-            or self.character_config.tts_preprocessor_config.translator_config
-            != translator_config
-        ):
-            logger.info(
-                f"Initializing Translator: {translator_config.translate_provider}"
-            )
-            self.translate_engine = TranslateFactory.get_translator(
-                translator_config.translate_provider,
-                getattr(
-                    translator_config, translator_config.translate_provider
-                ).model_dump(),
-            )
-            self.character_config.tts_preprocessor_config.translator_config = (
-                translator_config
-            )
-        else:
-            logger.info("Translation already initialized with the same config.")
 
     # ==== utils
 

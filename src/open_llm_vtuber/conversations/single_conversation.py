@@ -108,8 +108,7 @@ async def process_single_conversation(
                         live2d_model=context.live2d_model,
                         tts_engine=context.tts_engine,
                         websocket_send=websocket_send,  # Pass websocket_send for audio/tts messages
-                        tts_manager=tts_manager,
-                        translate_engine=context.translate_engine,
+                        tts_manager=tts_manager
                     )
                     # Ensure response_part is treated as a string before concatenation
                     response_part_str = (
@@ -136,6 +135,13 @@ async def process_single_conversation(
             )
             # full_response will contain partial response before error
         # --- End processing agent response ---
+
+        # 处理剩余的音频合并缓冲内容（仅在 Step TTS 合并模式下有效）
+        await tts_manager.flush_remaining(
+            live2d_model=context.live2d_model,
+            tts_engine=context.tts_engine,
+            websocket_send=websocket_send,
+        )
 
         # Wait for any pending TTS tasks
         if tts_manager.task_list:

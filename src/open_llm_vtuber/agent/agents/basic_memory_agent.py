@@ -67,6 +67,10 @@ class BasicMemoryAgent(AgentInterface):
         self._tool_executor = tool_executor
         self._mcp_prompt_string = mcp_prompt_string
         self._json_detector = StreamJSONDetector()
+        
+        # 跟踪对话历史中是否有图片（用于自动模型切换）
+        self._has_images_in_memory = False
+        self._image_memory: List[Dict[str, Any]] = []  # 存储图片数据的独立列表
 
         self._formatted_tools_openai = []
         self._formatted_tools_claude = []
@@ -114,7 +118,8 @@ class BasicMemoryAgent(AgentInterface):
     def _set_llm(self, llm: StatelessLLMInterface):
         """Set the LLM for chat completion."""
         self._llm = llm
-        self.chat = self._chat_function_factory()
+        # 注意：不再直接覆盖 self.chat，因为 chat 方法中有自动模型切换逻辑
+        # self.chat = self._chat_function_factory()  # 已移除
 
     def set_system(self, system: str):
         """Set the system prompt."""
@@ -131,8 +136,13 @@ class BasicMemoryAgent(AgentInterface):
         role: str,
         display_text: DisplayText | None = None,
         skip_memory: bool = False,
+        images: List[Dict[str, Any]] = None,
     ):
-        """Add message to memory."""
+        """Add message to memory.
+        
+        Args:
+            images: 可选的图片数据列表，格式为 [{"type": "image_url", "image_url": {...}}, ...]
+        """
         if skip_memory:
             return
 
@@ -149,6 +159,17 @@ class BasicMemoryAgent(AgentInterface):
                 f"_add_message received unexpected message type: {type(message)}"
             )
             text_content = str(message)
+        
+        # 如果提供了图片数据，保存到图片内存中
+        if images:
+            self._has_images_in_memory = True
+            for img in images:
+                self._image_memory.append({
+                    "role": role,
+                    "image": img,
+                    "message_index": len(self._memory)  # 关联到对应消息的索引
+                })
+            logger.info(f"📷 保存 {len(images)} 张图片到对话历史")
 
         if not text_content and role == "assistant":
             return
@@ -174,10 +195,18 @@ class BasicMemoryAgent(AgentInterface):
         self._memory.append(message_data)
 
     def set_memory_from_history(self, conf_uid: str, history_uid: str) -> None:
-        """Load memory from chat history."""
+        """Load memory from chat history.
+        
+        注意：加载新历史时会清空图片内存，模型切换状态也会重置。
+        """
         messages = get_history(conf_uid, history_uid)
 
         self._memory = []
+        # 清空图片内存并重置状态
+        self._image_memory = []
+        self._has_images_in_memory = False
+        logger.debug("📷 图片内存已清空（加载新历史）")
+        
         for msg in messages:
             role = "user" if msg["role"] == "human" else "assistant"
             content = msg["content"]
@@ -240,8 +269,34 @@ class BasicMemoryAgent(AgentInterface):
         return "\n".join(message_parts).strip()
 
     def _to_messages(self, input_data: BatchInput) -> List[Dict[str, Any]]:
-        """Prepare messages for LLM API call."""
-        messages = self._memory.copy()
+        """Prepare messages for LLM API call.
+        
+        此方法会：
+        1. 将历史消息中的图片数据重新附加到对应消息
+        2. 处理当前输入的文本和图片
+        """
+        # 复制 memory 并附加历史图片
+        messages = []
+        for idx, msg in enumerate(self._memory):
+            msg_copy = msg.copy()
+            
+            # 查找此消息对应的图片
+            images_for_msg = [
+                img_record["image"] 
+                for img_record in self._image_memory 
+                if img_record["message_index"] == idx
+            ]
+            
+            if images_for_msg:
+                # 将纯文本消息转换为多模态消息格式
+                original_content = msg_copy["content"]
+                msg_copy["content"] = [
+                    {"type": "text", "text": original_content}
+                ] + images_for_msg
+                logger.debug(f"📷 为消息 {idx} 附加 {len(images_for_msg)} 张历史图片")
+            
+            messages.append(msg_copy)
+        
         user_content = []
         text_prompt = self._to_text_prompt(input_data)
         if text_prompt:
@@ -279,8 +334,16 @@ class BasicMemoryAgent(AgentInterface):
                 skip_memory = True
 
             if not skip_memory:
+                # 提取图片数据用于保存
+                image_data_for_memory = []
+                for item in user_content:
+                    if item.get("type") == "image_url":
+                        image_data_for_memory.append(item)
+                
                 self._add_message(
-                    text_prompt if text_prompt else "[User provided image(s)]", "user"
+                    text_prompt if text_prompt else "[User provided image(s)]", 
+                    "user",
+                    images=image_data_for_memory if image_data_for_memory else None
                 )
         else:
             logger.warning("No content generated for user message.")
@@ -666,7 +729,45 @@ class BasicMemoryAgent(AgentInterface):
         self,
         input_data: BatchInput,
     ) -> AsyncIterator[Union[SentenceOutput, Dict[str, Any]]]:
-        """Run chat pipeline."""
+        """Run chat pipeline.
+        
+        如果启用了 multimodal_auto_switch 且满足以下任一条件，
+        会自动切换到视觉模型处理：
+        1. 当前输入包含图片
+        2. 对话历史中存在图片（用户可能在询问之前发送的图片内容）
+        
+        注意：一旦对话中出现图片，会持续使用视觉模型直到清空历史。
+        这是因为用户可能在多轮对话中询问同一张图片的不同方面。
+        """
+        # 检查是否需要自动切换到视觉模型
+        switched_this_call = False
+        
+        # 检查条件：当前有图片 或 历史中有图片
+        has_current_images = bool(input_data.images)
+        has_history_images = self._has_images_in_memory
+        needs_vision = has_current_images or has_history_images
+        
+        if needs_vision and hasattr(self._llm, 'model'):
+            try:
+                from ...config_manager.utils import get_lingxi_settings
+                settings = get_lingxi_settings()
+                if settings.get("multimodal_auto_switch", False):
+                    vision_model = settings.get("multimodal_vision_model", "step-1o-turbo-vision")
+                    # 只有当当前模型不是视觉模型时才切换
+                    if self._llm.model != vision_model:
+                        switched_this_call = True
+                        old_model = self._llm.model
+                        self._llm.model = vision_model
+                        switch_reason = "当前输入包含图片" if has_current_images else "对话历史中有图片"
+                        logger.info(f"🔄 自动切换到视觉模型: {old_model} -> {vision_model} (原因: {switch_reason})")
+                        logger.info(f"💡 提示: 模型将持续使用视觉模式直到开始新对话")
+                    else:
+                        logger.debug(f"📷 已在视觉模型模式: {vision_model}")
+            except Exception as e:
+                logger.warning(f"自动模型切换检查失败: {e}")
+        
+        # 注意：不再自动恢复模型，因为对话历史中可能有图片
+        # 模型会在清空历史时（开始新对话）才考虑恢复
         chat_func_decorated = self._chat_function_factory()
         async for output in chat_func_decorated(input_data):
             yield output

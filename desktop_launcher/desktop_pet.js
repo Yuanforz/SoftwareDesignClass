@@ -11,6 +11,13 @@ const AppState = {
     live2dModel: null,
     // 新增：待发送的附件列表
     pendingAttachments: [],
+    
+    // 灵犀助教特有设置（与后端 lingxi_settings 同步）
+    lingxiSettings: {
+        ttsEngine: 'step_tts',        // 'step_tts' 或 'edge_tts'
+        audioMergeEnabled: false,      // 音频合并生成
+        multimodalAutoSwitch: true,    // 多模态自动切换
+    }
 };
 
 // ==================== WebSocket 连接 ====================
@@ -94,9 +101,15 @@ function handleWebSocketMessage(data) {
                 const cleanText = data.display_text.text.replace(/\[\w+\]\s*/g, '');
                 console.log('🎤 收到音频消息:', cleanText);
                 
-                // 加入音频队列（不立即显示文本）
-                if (data.audio) {
-                    AudioQueue.enqueue(data.audio, cleanText);
+                // 检查是否是合并音频消息
+                if (data.merge_info && data.merge_info.is_merged) {
+                    // 收集合并消息，等全部到齐后再处理
+                    AudioQueue.collectMergedMessage(data.audio, cleanText, data.merge_info);
+                } else {
+                    // 非合并消息：正常处理
+                    if (data.audio) {
+                        AudioQueue.enqueue(data.audio, cleanText);
+                    }
                 }
             }
             break;
@@ -135,8 +148,30 @@ function handleWebSocketMessage(data) {
             break;
         
         case 'set-model-and-conf':
-            // 模型和配置信息（暂不处理）
+            // 模型和配置信息
             console.log('角色配置:', data.conf_name);
+            // 连接成功后，请求获取灵犀设置
+            sendMessage({ type: 'fetch-lingxi-settings' });
+            break;
+        
+        case 'lingxi-settings':
+            // 收到灵犀设置
+            if (data.settings) {
+                AppState.lingxiSettings.ttsEngine = data.settings.tts_engine || 'step_tts';
+                AppState.lingxiSettings.audioMergeEnabled = data.settings.audio_merge_enabled || false;
+                AppState.lingxiSettings.multimodalAutoSwitch = data.settings.multimodal_auto_switch !== false;
+                console.log('✅ 灵犀设置已同步:', AppState.lingxiSettings);
+            }
+            break;
+        
+        case 'lingxi-settings-updated':
+            // 设置更新结果
+            if (data.success) {
+                console.log('✅ 灵犀设置保存成功');
+            } else {
+                console.error('❌ 灵犀设置保存失败:', data.error);
+                showToast('❌ 设置保存失败');
+            }
             break;
             
         default:
@@ -198,12 +233,109 @@ const AudioQueue = {
     isPlaying: false,
     currentAudio: null,
     
+    // 合并消息收集器
+    mergedCollector: {
+        messages: [],       // 收集到的消息
+        expectedCount: 0,   // 期望的总数
+        timer: null,        // 超时定时器
+    },
+    
+    // 延迟显示的定时器列表（用于停止时清除）
+    pendingDisplayTimers: [],
+    
     // 检查是否是Markdown标题（不显示也不播放）
     isMarkdownHeading(text) {
         return /^#+\s+/.test(text.trim());
     },
     
-    // 添加音频到队列
+    // 收集合并消息
+    collectMergedMessage(audio, text, mergeInfo) {
+        // 过滤Markdown标题
+        if (this.isMarkdownHeading(text)) {
+            console.log(`🚫 过滤合并消息中的Markdown标题: "${text}"`);
+            // 减少期望的总数
+            mergeInfo.total_sentences = Math.max(1, mergeInfo.total_sentences - 1);
+            return;
+        }
+        
+        const collector = this.mergedCollector;
+        
+        console.log(`🔗 收集合并消息: 句子 ${mergeInfo.sentence_index + 1}/${mergeInfo.total_sentences}, "${text.substring(0, 30)}..."`);
+        
+        // 存储消息
+        collector.messages.push({ audio, text, mergeInfo });
+        collector.expectedCount = mergeInfo.total_sentences;
+        
+        // 清除之前的超时定时器
+        if (collector.timer) {
+            clearTimeout(collector.timer);
+        }
+        
+        // 检查是否收集完毕
+        if (collector.messages.length >= collector.expectedCount) {
+            console.log(`✅ 合并消息收集完毕: ${collector.messages.length}/${collector.expectedCount}`);
+            this.processMergedMessages();
+        } else {
+            // 设置超时定时器（500ms 内没有新消息就强制处理）
+            collector.timer = setTimeout(() => {
+                console.log(`⚠️ 合并消息超时，强制处理: ${collector.messages.length}/${collector.expectedCount}`);
+                this.processMergedMessages();
+            }, 500);
+        }
+    },
+    
+    // 处理收集完毕的合并消息
+    processMergedMessages() {
+        const collector = this.mergedCollector;
+        
+        if (collector.timer) {
+            clearTimeout(collector.timer);
+            collector.timer = null;
+        }
+        
+        if (collector.messages.length === 0) {
+            return;
+        }
+        
+        // 按 sentence_index 排序
+        const sorted = collector.messages.slice().sort((a, b) => 
+            a.mergeInfo.sentence_index - b.mergeInfo.sentence_index
+        );
+        
+        console.log(`🔗 处理合并消息（已排序）:`, sorted.map(m => ({
+            index: m.mergeInfo.sentence_index,
+            delay: m.mergeInfo.delay_before_show_ms || 0,
+            hasAudio: !!m.audio,
+            text: m.text.substring(0, 25)
+        })));
+        
+        // 清空收集器
+        collector.messages = [];
+        collector.expectedCount = 0;
+        
+        // 找到携带音频的那条（sentence_index=0）
+        const audioMessage = sorted.find(m => m.audio);
+        if (!audioMessage) {
+            console.error('❌ 合并消息中没有找到音频');
+            return;
+        }
+        
+        // 入队：携带音频 + 所有句子的显示信息
+        this.queue.push({
+            base64Audio: audioMessage.audio,
+            text: audioMessage.text,
+            isMerged: true,
+            mergedSentences: sorted  // 所有句子（已排序）
+        });
+        
+        console.log(`📜 合并音频入队，包含 ${sorted.length} 个句子，队列长度: ${this.queue.length}`);
+        
+        if (!this.isPlaying) {
+            this.playNext();
+        }
+    },
+    
+    // 添加普通音频到队列
     enqueue(base64Audio, text) {
         // 过滤Markdown标题（不显示也不发声）
         if (this.isMarkdownHeading(text)) {
@@ -211,7 +343,7 @@ const AudioQueue = {
             return;
         }
         
-        this.queue.push({ base64Audio, text });
+        this.queue.push({ base64Audio, text, isMerged: false });
         console.log(`📜 音频入队: "${text}", 队列长度: ${this.queue.length}`);
         
         // 如果没有正在播放，开始播放
@@ -231,17 +363,56 @@ const AudioQueue = {
         this.isPlaying = true;
         const item = this.queue.shift();
         
-        // **先显示文本，再播放音频**
-        console.log(`💬 显示文本: "${item.text}"`);
-        addMessage('assistant', item.text);
-        
-        console.log(`🔊 开始播放: "${item.text}", 剩余: ${this.queue.length}`);
-        
-        try {
-            await this.playAudioFromBase64(item.base64Audio);
-            console.log(`✅ 播放完成: "${item.text}"`);
-        } catch (error) {
-            console.error('❌ 播放失败:', error);
+        if (item.isMerged && item.mergedSentences) {
+            // 合并消息：播放音频 + 按时间显示各句子
+            console.log(`🔊 开始播放合并音频，共 ${item.mergedSentences.length} 个句子`);
+            
+            // 清空之前的延迟显示定时器
+            this.clearPendingDisplayTimers();
+            
+            // 立即显示第一句
+            const firstSentence = item.mergedSentences[0];
+            console.log(`💬 显示第1句: "${firstSentence.text}"`);
+            addMessage('assistant', firstSentence.text);
+            
+            // 设置后续句子的延迟显示
+            for (let i = 1; i < item.mergedSentences.length; i++) {
+                const sentence = item.mergedSentences[i];
+                const delayMs = sentence.mergeInfo.delay_before_show_ms || 0;
+                console.log(`⏱️ 第${i+1}句将在 ${delayMs}ms 后显示: "${sentence.text.substring(0, 30)}..."`);
+                
+                const timerId = setTimeout(() => {
+                    console.log(`💬 延迟显示第${i+1}句: "${sentence.text}"`);
+                    addMessage('assistant', sentence.text);
+                    // 从待处理列表中移除
+                    const idx = this.pendingDisplayTimers.indexOf(timerId);
+                    if (idx > -1) this.pendingDisplayTimers.splice(idx, 1);
+                }, delayMs);
+                
+                // 记录定时器ID
+                this.pendingDisplayTimers.push(timerId);
+            }
+            
+            // 播放音频
+            try {
+                await this.playAudioFromBase64(item.base64Audio);
+                console.log(`✅ 合并音频播放完成`);
+            } catch (error) {
+                console.error('❌ 播放失败:', error);
+            }
+        } else {
+            // 普通消息：显示文本 + 播放音频
+            console.log(`💬 显示文本: "${item.text}"`);
+            addMessage('assistant', item.text);
+            
+            console.log(`🔊 开始播放: "${item.text}", 剩余: ${this.queue.length}`);
+            
+            try {
+                await this.playAudioFromBase64(item.base64Audio);
+                console.log(`✅ 播放完成: "${item.text}"`);
+            } catch (error) {
+                console.error('❌ 播放失败:', error);
+            }
         }
         
         // 播放下一个
@@ -309,9 +480,32 @@ const AudioQueue = {
         
         // 清空队列
         this.queue = [];
+        
+        // 清空合并消息收集器
+        if (this.mergedCollector.timer) {
+            clearTimeout(this.mergedCollector.timer);
+            this.mergedCollector.timer = null;
+        }
+        this.mergedCollector.messages = [];
+        this.mergedCollector.expectedCount = 0;
+        
+        // 清除所有待处理的延迟显示定时器
+        this.clearPendingDisplayTimers();
+        
         this.isPlaying = false;
         
-        console.log('✅ 所有音频已停止');
+        console.log('✅ 所有音频已停止，延迟显示已取消');
+    },
+    
+    // 清除所有待处理的延迟显示定时器
+    clearPendingDisplayTimers() {
+        if (this.pendingDisplayTimers.length > 0) {
+            console.log(`🧹 清除 ${this.pendingDisplayTimers.length} 个待处理的延迟显示定时器`);
+            for (const timerId of this.pendingDisplayTimers) {
+                clearTimeout(timerId);
+            }
+            this.pendingDisplayTimers = [];
+        }
     }
 };
 
@@ -668,10 +862,15 @@ const settingsModal = document.getElementById('settings-modal');
 function showSettingsModal() {
     settingsModal.classList.remove('hidden');
     
-    // 同步设置状态
+    // 同步显示设置状态
     document.getElementById('auto-scroll-toggle').checked = AppState.autoScroll;
     document.getElementById('markdown-toggle').checked = AppState.markdownEnabled;
     document.getElementById('latex-toggle').checked = AppState.latexEnabled;
+    
+    // 同步灵犀设置状态
+    document.getElementById('tts-engine-select').value = AppState.lingxiSettings.ttsEngine;
+    document.getElementById('audio-merge-toggle').checked = AppState.lingxiSettings.audioMergeEnabled;
+    document.getElementById('multimodal-auto-switch-toggle').checked = AppState.lingxiSettings.multimodalAutoSwitch;
 }
 
 // 模态窗口关闭
@@ -681,7 +880,7 @@ document.querySelectorAll('.close-btn').forEach(btn => {
     });
 });
 
-// 设置项变更
+// 显示设置项变更（本地生效）
 document.getElementById('auto-scroll-toggle').addEventListener('change', (e) => {
     AppState.autoScroll = e.target.checked;
 });
@@ -693,6 +892,52 @@ document.getElementById('markdown-toggle').addEventListener('change', (e) => {
 document.getElementById('latex-toggle').addEventListener('change', (e) => {
     AppState.latexEnabled = e.target.checked;
 });
+
+// 保存灵犀设置（需要同步到后端）
+document.getElementById('save-settings-btn').addEventListener('click', () => {
+    // 更新本地状态
+    AppState.lingxiSettings.ttsEngine = document.getElementById('tts-engine-select').value;
+    AppState.lingxiSettings.audioMergeEnabled = document.getElementById('audio-merge-toggle').checked;
+    AppState.lingxiSettings.multimodalAutoSwitch = document.getElementById('multimodal-auto-switch-toggle').checked;
+    
+    // 发送到后端保存
+    sendMessage({
+        type: 'update-lingxi-settings',
+        settings: {
+            tts_engine: AppState.lingxiSettings.ttsEngine,
+            audio_merge_enabled: AppState.lingxiSettings.audioMergeEnabled,
+            multimodal_auto_switch: AppState.lingxiSettings.multimodalAutoSwitch
+        }
+    });
+    
+    // 显示保存成功提示
+    showToast('✅ 设置已保存');
+    
+    // 关闭设置窗口
+    settingsModal.classList.add('hidden');
+});
+
+// Toast 提示
+function showToast(message, duration = 2000) {
+    const toast = document.createElement('div');
+    toast.className = 'toast-message';
+    toast.textContent = message;
+    toast.style.cssText = `
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 10px 20px;
+        border-radius: 20px;
+        font-size: 14px;
+        z-index: 10000;
+        animation: fadeInOut ${duration}ms ease-in-out;
+    `;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), duration);
+}
 
 // 点击模态背景关闭
 document.querySelectorAll('.modal').forEach(modal => {

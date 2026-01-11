@@ -477,8 +477,10 @@ class SentenceDivider:
         # Replace active_tags dict with a stack to handle nesting
         self._tag_stack = []
         # 双流模式的正则表达式
+        # 使用 [^<]* 替代 .*? 避免匹配到其他标签
+        # 允许 show/say 标签内容包含除 < 外的任何字符，或者允许特定的内嵌标签如 **
         self._dual_stream_pattern = re.compile(
-            r'<show>(.*?)</show>\s*<say>(.*?)</say>',
+            r'<show>((?:(?!<show>|</show>|<say>|</say>).)*)</show>\s*<say>((?:(?!<show>|</show>|<say>|</say>).)*)</say>',
             re.DOTALL
         )
 
@@ -765,28 +767,57 @@ class SentenceDivider:
     async def _process_dual_stream_buffer(self) -> AsyncIterator[SentenceWithTags]:
         """
         处理双流模式的缓冲区，提取 <show>...</show><say>...</say> 对。
+        也处理缺少开始标签的情况（如 "内容</show><say>TTS</say>"）。
         """
         while True:
-            # 查找完整的双流对
+            # 首先尝试匹配完整的双流对
             match = self._dual_stream_pattern.search(self._buffer)
-            if not match:
-                break
+            if match:
+                display_text = match.group(1).strip()
+                tts_text = match.group(2).strip()
+                
+                logger.debug(f"双流输出 - 显示: {display_text}, TTS: {tts_text}")
+                
+                # 生成带有 TTS 文本的 SentenceWithTags
+                yield SentenceWithTags(
+                    text=display_text,
+                    tags=[TagInfo("", TagState.NONE)],
+                    tts_text=tts_text
+                )
+                
+                # 从缓冲区移除已处理的部分
+                self._buffer = self._buffer[match.end():]
+                self._is_first_sentence = False
+                continue
             
-            display_text = match.group(1).strip()
-            tts_text = match.group(2).strip()
-            
-            logger.debug(f"双流输出 - 显示: {display_text}, TTS: {tts_text}")
-            
-            # 生成带有 TTS 文本的 SentenceWithTags
-            yield SentenceWithTags(
-                text=display_text,
-                tags=[TagInfo("", TagState.NONE)],
-                tts_text=tts_text
+            # 尝试匹配缺少开始 <show> 标签的情况
+            # 例如: "内容</show><say>TTS内容</say>"
+            incomplete_match = re.search(
+                r'^(.*?)</show>\s*<say>(.*?)</say>',
+                self._buffer,
+                re.DOTALL
             )
+            if incomplete_match:
+                display_text = incomplete_match.group(1).strip()
+                tts_text = incomplete_match.group(2).strip()
+                
+                # 只在有内容时处理
+                if display_text or tts_text:
+                    logger.debug(f"双流输出(修复) - 显示: {display_text}, TTS: {tts_text}")
+                    
+                    yield SentenceWithTags(
+                        text=display_text if display_text else tts_text,
+                        tags=[TagInfo("", TagState.NONE)],
+                        tts_text=tts_text if tts_text else display_text
+                    )
+                    
+                    # 从缓冲区移除已处理的部分
+                    self._buffer = self._buffer[incomplete_match.end():]
+                    self._is_first_sentence = False
+                    continue
             
-            # 从缓冲区移除已处理的部分
-            self._buffer = self._buffer[match.end():]
-            self._is_first_sentence = False
+            # 没有更多可处理的内容
+            break
 
     async def _flush_dual_stream_buffer(self) -> AsyncIterator[SentenceWithTags]:
         """
@@ -799,8 +830,27 @@ class SentenceDivider:
         # 处理剩余内容（可能是不完整的或非双流格式的文本）
         remaining = self._buffer.strip()
         if remaining:
-            # 尝试提取不完整的标签内容
-            # 检查是否有未闭合的 <show> 标签
+            # 尝试处理缺少开始标签的情况
+            # 例如: "内容 </show><say>TTS内容</say>"
+            incomplete_pattern = re.search(
+                r'^(.*?)\s*</show>\s*<say>(.*?)</say>$', 
+                remaining, 
+                re.DOTALL
+            )
+            if incomplete_pattern:
+                display_text = incomplete_pattern.group(1).strip()
+                tts_text = incomplete_pattern.group(2).strip()
+                if display_text or tts_text:
+                    logger.debug(f"双流刷新 - 修复不完整标签: 显示={display_text}, TTS={tts_text}")
+                    yield SentenceWithTags(
+                        text=display_text if display_text else tts_text,
+                        tags=[TagInfo("", TagState.NONE)],
+                        tts_text=tts_text if tts_text else display_text
+                    )
+                    self._buffer = ""
+                    return
+            
+            # 尝试提取不完整的 <show> 标签
             show_match = re.search(r'<show>(.*?)(?:</show>|$)', remaining, re.DOTALL)
             if show_match:
                 display_text = show_match.group(1).strip()

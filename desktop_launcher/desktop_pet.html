@@ -148,23 +148,63 @@
                 <button class="close-btn">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="setting-item">
-                    <label>
-                        <input type="checkbox" id="auto-scroll-toggle" checked>
-                        自动滚动到最新消息
-                    </label>
+                <!-- 显示设置 -->
+                <div class="settings-section">
+                    <h4>📺 显示设置</h4>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="auto-scroll-toggle" checked>
+                            自动滚动到最新消息
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="markdown-toggle" checked>
+                            启用 Markdown 渲染
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="latex-toggle" checked>
+                            启用 LaTeX 公式渲染
+                        </label>
+                    </div>
                 </div>
-                <div class="setting-item">
-                    <label>
-                        <input type="checkbox" id="markdown-toggle" checked>
-                        启用 Markdown 渲染
-                    </label>
+
+                <!-- 语音合成设置 -->
+                <div class="settings-section">
+                    <h4>🔊 语音合成</h4>
+                    <div class="setting-item">
+                        <label>TTS 引擎</label>
+                        <select id="tts-engine-select">
+                            <option value="step_tts">阶跃星辰 (高质量)</option>
+                            <option value="edge_tts">Edge TTS (免费)</option>
+                        </select>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="audio-merge-toggle">
+                            音频合并生成
+                        </label>
+                        <span class="setting-hint">合并多句生成，减少API调用次数</span>
+                    </div>
                 </div>
-                <div class="setting-item">
-                    <label>
-                        <input type="checkbox" id="latex-toggle" checked>
-                        启用 LaTeX 公式渲染
-                    </label>
+
+                <!-- 智能功能设置 -->
+                <div class="settings-section">
+                    <h4>🧠 智能功能</h4>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="multimodal-auto-switch-toggle" checked>
+                            多模态自动切换
+                        </label>
+                        <span class="setting-hint">纯文本用便宜模型，有图片时自动切换</span>
+                    </div>
+                </div>
+
+                <!-- 保存按钮 -->
+                <div class="settings-actions">
+                    <button id="save-settings-btn" class="primary-btn">💾 保存设置</button>
                 </div>
             </div>
         </div>

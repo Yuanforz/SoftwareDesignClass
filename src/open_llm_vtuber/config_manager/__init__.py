@@ -9,7 +9,6 @@ and utility functions for loading/saving configurations.
 from .main import Config
 from .system import SystemConfig
 from .character import CharacterConfig
-from .live import LiveConfig, BiliBiliLiveConfig
 from .stateless_llm import (
     OpenAICompatibleConfig,
     ClaudeConfig,
@@ -42,7 +41,7 @@ from .vad import (
     VADConfig,
     SileroVADConfig,
 )
-from .tts_preprocessor import TTSPreprocessorConfig, TranslatorConfig, DeepLXConfig
+from .tts_preprocessor import TTSPreprocessorConfig
 from .i18n import I18nMixin, Description, MultiLingualString
 from .agent import (
     AgentConfig,
@@ -62,6 +61,8 @@ from .utils import (
     save_config,
     scan_config_alts_directory,
     scan_bg_directory,
+    update_lingxi_settings,
+    get_lingxi_settings,
 )
 
 __all__ = [
@@ -69,8 +70,6 @@ __all__ = [
     "Config",
     "SystemConfig",
     "CharacterConfig",
-    "LiveConfig",
-    "BiliBiliLiveConfig",
     # LLM related classes
     "OpenAICompatibleConfig",
     "ClaudeConfig",
@@ -122,4 +121,6 @@ __all__ = [
     "save_config",
     "scan_config_alts_directory",
     "scan_bg_directory",
+    "update_lingxi_settings",
+    "get_lingxi_settings",
 ]
