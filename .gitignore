@@ -81,3 +81,6 @@ private/
 mcp_servers.json
 
 .vscode/
+.cursor/
+.gemini/
+.github/
