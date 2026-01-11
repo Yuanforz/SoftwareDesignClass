@@ -34,7 +34,7 @@
 
 - Windows 10/11
 - Python 3.10+
-- Node.js 16+ (桌面客户端)
+- Node.js 16+
 - NVIDIA GPU (推荐，用于 CUDA 加速)
 
 ### 安装步骤
@@ -45,29 +45,34 @@
    cd LingXi-Assistant
    ```
 
-2. **安装 Python 依赖**
-   ```bash
-   pip install uv
-   uv sync
-   ```
-
-3. **配置 API 密钥**
+2. **配置 API 密钥**
    
    编辑 `conf.yaml`，填入你的 StepFun API 密钥：
    ```yaml
    llm_api_key: 'your-api-key-here'
    ```
 
-4. **启动应用**
+3. **一键启动**
    ```powershell
    .\启动灵犀助教.ps1
    ```
 
+启动脚本会自动完成：
+- 检查 uv 和 Node.js 环境
+- 同步 Python 依赖
+- 启动后端服务
+- 启动桌宠客户端
+
+### 快捷键
+
+- `Ctrl+Shift+L` - 切换桌宠/正常模式
+- `Ctrl+Shift+H` - 隐藏/显示窗口  
+- `Ctrl+Shift+Q` - 退出应用
+
 ### 首次使用
 
-1. 选择启动模式（推荐桌面客户端）
-2. 等待模型加载（首次需下载约 500MB）
-3. 开始与灵犀助教对话！
+1. 等待模型加载（首次需下载约 500MB）
+2. 开始与灵犀助教对话！
 
 ## 📖 功能详解
 
