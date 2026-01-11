@@ -1,160 +1,253 @@
-![](./assets/banner.jpg)
+# 灵犀助教 LingXi Assistant
 
-<h1 align="center">Open-LLM-VTuber</h1>
-<h3 align="center">
+![灵犀助教](assets/banner.png)
 
-[![GitHub release](https://img.shields.io/github/v/release/t41372/Open-LLM-VTuber)](https://github.com/t41372/Open-LLM-VTuber/releases) 
-[![license](https://img.shields.io/github/license/t41372/Open-LLM-VTuber)](https://github.com/t41372/Open-LLM-VTuber/blob/master/LICENSE) 
-[![CodeQL](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber/actions/workflows/codeql.yml/badge.svg)](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber/actions/workflows/codeql.yml)
-[![Ruff](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber/actions/workflows/ruff.yml/badge.svg)](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber/actions/workflows/ruff.yml)
-[![Docker](https://img.shields.io/badge/t41372%2FOpen--LLM--VTuber-%25230db7ed.svg?logo=docker&logoColor=blue&labelColor=white&color=blue)](https://hub.docker.com/r/t41372/open-llm-vtuber) 
-[![QQ Group](https://img.shields.io/badge/QQ_Group-792615362-white?style=flat&logo=qq&logoColor=white)](https://qm.qq.com/q/ngvNUQpuKI)
-[![QQ Channel](https://img.shields.io/badge/QQ_Channel_(dev)-pd93364606-white?style=flat&logo=qq&logoColor=white)](https://pd.qq.com/s/tt54r3bu)
+<h1 align="center">灵犀助教</h1>
+<h3 align="center">基于多模态交互的个性化知识自学软件</h3>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/version-1.0.0-blue" alt="version">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
+  <img src="https://img.shields.io/badge/python-3.10+-orange" alt="python">
+</p>
 
-[![BuyMeACoffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/yi.ting)
-[![](https://dcbadge.limes.pink/api/server/3UDA8YFDXx)](https://discord.gg/3UDA8YFDXx)
+---
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Open-LLM-VTuber/Open-LLM-VTuber)
+## 🎓 项目简介
 
-English README | [中文README](https://github.com/t41372/Open-LLM-VTuber/blob/main/README.CN.md)
+**灵犀助教**是一个创新的 AI 学习助手，通过可爱的 Live2D 数字人形象、智能语音交互和强大的视觉理解能力，为学生和自学者提供个性化的知识讲解与学习辅导服务。
 
-[Documentation](https://open-llm-vtuber.github.io/docs/quick-start) | [![Roadmap](https://img.shields.io/badge/Roadmap-GitHub_Project-yellow)](https://github.com/orgs/Open-LLM-VTuber/projects/2)
+### ✨ 核心特点
 
-<a href="https://trendshift.io/repositories/12358" target="_blank"><img src="https://trendshift.io/api/badge/repositories/12358" alt="t41372%2FOpen-LLM-VTuber | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+- 🎤 **实时语音对话** - 基于 FunASR 的高精度中文语音识别
+- 🗣️ **自然语音合成** - Edge TTS 提供流畅自然的语音输出
+- 👁️ **视觉理解能力** - 支持图片、截图等学习资料的智能分析
+- 💬 **智能知识讲解** - 基于大语言模型的耐心细致讲解
+- 🖥️ **桌宠模式** - 可爱的桌面伴侣，随时陪伴学习
+- 📝 **Markdown 渲染** - 结构化清晰的回答展示
+- 🔢 **LaTeX 公式** - 完美支持数学公式渲染
+- 🎨 **Live2D 形象** - 生动的数字人表情和动作
 
-</h3>
+## 🚀 快速开始
 
+### 系统要求
 
-> 常见问题 Common Issues doc (Written in Chinese): https://docs.qq.com/pdf/DTFZGQXdTUXhIYWRq
->
-> User Survey: https://forms.gle/w6Y6PiHTZr1nzbtWA
->
-> 调查问卷(中文): https://wj.qq.com/s2/16150415/f50a/
+- Windows 10/11
+- Python 3.10+
+- Node.js 16+ (桌面客户端)
+- NVIDIA GPU (推荐，用于 CUDA 加速)
 
+### 安装步骤
 
+1. **克隆仓库**
+   ```bash
+   git clone [your-repo-url]
+   cd LingXi-Assistant
+   ```
 
-> :warning: This project is in its early stages and is currently under **active development**.
+2. **安装 Python 依赖**
+   ```bash
+   pip install uv
+   uv sync
+   ```
 
-> :warning: If you want to run the server remotely and access it on a different machine, such as running the server on your computer and access it on your phone, you will need to configure `https`, because the microphone on the front end will only launch in a secure context (a.k.a. https or localhost). See [MDN Web Doc](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia). Therefore, you should configure https with a reverse proxy to access the page on a remote machine (non-localhost).
+3. **配置 API 密钥**
+   
+   编辑 `conf.yaml`，填入你的 StepFun API 密钥：
+   ```yaml
+   llm_api_key: 'your-api-key-here'
+   ```
 
+4. **启动应用**
+   ```powershell
+   .\启动灵犀助教.ps1
+   ```
 
+### 首次使用
 
-## ⭐️ What is this project?
+1. 选择启动模式（推荐桌面客户端）
+2. 等待模型加载（首次需下载约 500MB）
+3. 开始与灵犀助教对话！
 
+## 📖 功能详解
 
-**Open-LLM-VTuber** is a unique **voice-interactive AI companion** that not only supports **real-time voice conversations**  and **visual perception** but also features a lively **Live2D avatar**. All functionalities can run completely offline on your computer!
+### 1. 语音交互
 
-You can treat it as your personal AI companion — whether you want a `virtual girlfriend`, `boyfriend`, `cute pet`, or any other character, it can meet your expectations. The project fully supports `Windows`, `macOS`, and `Linux`, and offers two usage modes: web version and desktop client (with special support for **transparent background desktop pet mode**, allowing the AI companion to accompany you anywhere on your screen).
+灵犀助教支持流畅的语音对话：
+- 实时语音识别，低延迟响应
+- 自然的中文语音合成
+- 支持打断和重新开始
 
-Although the long-term memory feature is temporarily removed (coming back soon), thanks to the persistent storage of chat logs, you can always continue your previous unfinished conversations without losing any precious interactive moments.
+### 2. 图片理解
 
-In terms of backend support, we have integrated a rich variety of LLM inference, text-to-speech, and speech recognition solutions. If you want to customize your AI companion, you can refer to the [Character Customization Guide](https://open-llm-vtuber.github.io/docs/user-guide/live2d) to customize your AI companion's appearance and persona.
+上传学习资料，AI 自动分析：
+- 课件截图理解
+- 习题图片解答
+- 笔记内容提炼
 
-The reason it's called `Open-LLM-Vtuber` instead of `Open-LLM-Companion` or `Open-LLM-Waifu` is because the project's initial development goal was to use open-source solutions that can run offline on platforms other than Windows to recreate the closed-source AI Vtuber `neuro-sama`.
+**使用方式**：
+- 网页版：点击图片上传按钮
+- 桌面版：拖拽图片到窗口
 
-This project underwent code refactoring after version `v1.0.0` and is currently in active development, with many exciting features coming soon! 🚀 Check out our [Roadmap](https://github.com/users/t41372/projects/1/views/5) to learn about update plans.
+### 3. 智能讲解
 
+专业的教学风格：
+- 循序渐进的知识讲解
+- 清晰的结构化回答
+- 丰富的例子和类比
+- 知识点拓展和关联
 
-### 👀 Demo
-| ![](assets/i1.jpg) | ![](assets/i2.jpg) |
-|:---:|:---:|
-| ![](assets/i3.jpg) | ![](assets/i4.jpg) |
+### 4. 桌宠模式
 
+可爱的桌面伴侣：
+- 透明背景，可悬浮在桌面
+- 鼠标悬停显示控制面板
+- 全局快捷键快速操作
 
-## ✨ Features & Highlights
+**快捷键**：
+- `Ctrl+Shift+L` - 切换桌宠/正常模式
+- `Ctrl+Shift+H` - 隐藏/显示窗口
+- `Ctrl+Shift+Q` - 退出应用
 
-- 🖥️ **Cross-platform support**: Perfect compatibility with macOS, Linux, and Windows. We support NVIDIA and non-NVIDIA GPUs, with options to run on CPU or use cloud APIs for resource-intensive tasks. Some components support GPU acceleration on macOS.
+## 🎯 使用场景
 
-- 🔒 **Offline mode support**: Run completely offline using local models - no internet required. Your conversations stay on your device, ensuring privacy and security.
+### 📚 课程学习
+> 上传课件截图 → 语音询问疑问 → 获得详细讲解
 
-- 💻 **Attractive and powerful web and desktop clients**: Offers both web version and desktop client usage modes, supporting rich interactive features and personalization settings. The desktop client can switch freely between window mode and desktop pet mode, allowing the AI companion to be by your side at all times.
+### 📝 习题解答
+> 拍摄题目照片 → 请求解题思路 → 理解知识要点
 
-- 🎯 **Advanced interaction features**:
-  - 👁️ Visual perception, supporting camera, screen recording and screenshots, allowing your AI companion to see you and your screen
-  - 🎤 Voice interruption without headphones (AI won't hear its own voice)
-  - 🫱 Touch feedback, interact with your AI companion through clicks or drags
-  - 😊 Live2D expressions, set emotion mapping to control model expressions from the backend
-  - 🐱 Pet mode, supporting transparent background, global top-most, and mouse click-through - drag your AI companion anywhere on the screen
-  - 💭 Display AI's inner thoughts, allowing you to see AI's expressions, thoughts and actions without them being spoken
-  - 🗣️ AI proactive speaking feature
-  - 💾 Chat log persistence, switch to previous conversations anytime
-  - 🌍 TTS translation support (e.g., chat in Chinese while AI uses Japanese voice)
+### 🔍 知识探索
+> 提出学习目标 → 系统化讲解 → 推荐学习路径
 
-- 🧠 **Extensive model support**:
-  - 🤖 Large Language Models (LLM): Ollama, OpenAI (and any OpenAI-compatible API), Gemini, Claude, Mistral, DeepSeek, Zhipu AI, GGUF, LM Studio, vLLM, etc.
-  - 🎙️ Automatic Speech Recognition (ASR): sherpa-onnx, FunASR, Faster-Whisper, Whisper.cpp, Whisper, Groq Whisper, Azure ASR, etc.
-  - 🔊 Text-to-Speech (TTS): sherpa-onnx, pyttsx3, MeloTTS, Coqui-TTS, GPTSoVITS, Bark, CosyVoice, Edge TTS, Fish Audio, Azure TTS, etc.
+### 📊 学习规划
+> 描述学习需求 → 制定学习计划 → 跟踪学习进度
 
-- 🔧 **Highly customizable**:
-  - ⚙️ **Simple module configuration**: Switch various functional modules through simple configuration file modifications, without delving into the code
-  - 🎨 **Character customization**: Import custom Live2D models to give your AI companion a unique appearance. Shape your AI companion's persona by modifying the Prompt. Perform voice cloning to give your AI companion the voice you desire
-  - 🧩 **Flexible Agent implementation**: Inherit and implement the Agent interface to integrate any Agent architecture, such as HumeAI EVI, OpenAI Her, Mem0, etc.
-  - 🔌 **Good extensibility**: Modular design allows you to easily add your own LLM, ASR, TTS, and other module implementations, extending new features at any time
+## ⚙️ 配置说明
 
+### 基础配置
 
-## 👥 User Reviews
-> Thanks to the developer for open-sourcing and sharing the girlfriend for everyone to use
-> 
-> This girlfriend has been used over 100,000 times
+主要配置文件：`conf.yaml`
+
+```yaml
+character_config:
+  character_name: '灵犀'      # AI 助教名称
+  human_name: '同学'          # 对用户的称呼
+  
+  agent_config:
+    llm_provider: 'openai_compatible_llm'  # LLM 提供商
+    
+  asr_config:
+    asr_model: 'fun_asr'      # 语音识别模型
+    
+  tts_config:
+    tts_model: 'edge_tts'     # 语音合成模型
+```
 
+### 高级配置
 
-## 🚀 Quick Start
+详细配置请参考：[使用指南.md](使用指南.md)
 
-Please refer to the [Quick Start](https://open-llm-vtuber.github.io/docs/quick-start) section in our documentation for installation.
+## 🛠️ 技术架构
 
+```
+灵犀助教
+├── 前端
+│   ├── Live2D 渲染引擎
+│   ├── WebSocket 通信
+│   └── Markdown + LaTeX 渲染
+├── 后端
+│   ├── FastAPI 服务器
+│   ├── FunASR 语音识别
+│   ├── Edge TTS 语音合成
+│   └── StepFun LLM API
+└── 桌面客户端
+    └── Electron 框架
+```
 
+### 技术栈
 
-## ☝ Update
-> :warning: `v1.0.0` has breaking changes and requires re-deployment. You *may* still update via the method below, but the `conf.yaml` file is incompatible and most of the dependencies needs to be reinstalled with `uv`. For those who came from versions before `v1.0.0`, I recommend deploy this project again with the [latest deployment guide](https://open-llm-vtuber.github.io/docs/quick-start).
+- **前端**: HTML, CSS, JavaScript, Live2D Cubism SDK
+- **后端**: Python, FastAPI, WebSocket
+- **桌面**: Electron
+- **ASR**: FunASR (SenseVoiceSmall)
+- **TTS**: Microsoft Edge TTS
+- **LLM**: StepFun step-2-16k (支持视觉)
+- **渲染**: Marked.js, KaTeX
 
-Please use `uv run update.py` to update if you installed any versions later than `v1.0.0`.
+## 📊 性能优化
 
-## 😢 Uninstall  
-Most files, including Python dependencies and models, are stored in the project folder.
+### GPU 加速
 
-However, models downloaded via ModelScope or Hugging Face may also be in `MODELSCOPE_CACHE` or `HF_HOME`. While we aim to keep them in the project's `models` directory, it's good to double-check.  
+如果你有 NVIDIA GPU：
 
-Review the installation guide for any extra tools you no longer need, such as `uv`, `ffmpeg`, or `deeplx`.  
+```yaml
+# conf.yaml
+asr_config:
+  fun_asr:
+    device: 'cuda:0'  # 使用 GPU 加速
+```
 
-## 🤗 Want to contribute?
-Checkout the [development guide](https://docs.llmvtuber.com/docs/development-guide/overview).
+### 内存优化
 
+调整并发线程数：
 
-# 🎉🎉🎉 Related Projects
+```yaml
+fun_asr:
+  ncpu: 2  # 减少 CPU 线程
+```
 
-[ylxmf2005/LLM-Live2D-Desktop-Assitant](https://github.com/ylxmf2005/LLM-Live2D-Desktop-Assitant)
-- Your Live2D desktop assistant powered by LLM! Available for both Windows and MacOS, it senses your screen, retrieves clipboard content, and responds to voice commands with a unique voice. Featuring voice wake-up, singing capabilities, and full computer control for seamless interaction with your favorite character.
+## 🐛 常见问题
 
+### Q: 首次启动很慢？
+A: 需要下载 FunASR 模型（约 500MB），请耐心等待。
 
+### Q: 语音识别不准确？
+A: 确保麦克风权限已开启，尽量在安静环境使用。
 
+### Q: 图片上传没反应？
+A: 检查 API 密钥是否正确，网络连接是否正常。
 
+### Q: 数学公式无法显示？
+A: 刷新页面，或检查网络连接（需要加载 KaTeX 库）。
 
+更多问题请查看：[使用指南.md](使用指南.md#常见问题)
 
-## 📜 Third-Party Licenses
+## 📁 项目结构
 
-### Live2D Sample Models Notice
+```
+LingXi-Assistant/
+├── conf.yaml              # 主配置文件
+├── run_server.py          # 后端启动脚本
+├── 启动灵犀助教.ps1        # 一键启动脚本
+├── 使用指南.md            # 详细使用文档
+├── src/                   # 源代码
+│   └── open_llm_vtuber/  # 核心模块
+├── desktop_launcher/      # 桌面客户端
+├── frontend/              # 前端资源
+├── prompts/               # 提示词模板
+├── models/                # 模型文件
+├── logs/                  # 日志文件
+└── docs/                  # 文档
+```
 
-This project includes Live2D sample models provided by Live2D Inc. These assets are licensed separately under the Live2D Free Material License Agreement and the Terms of Use for Live2D Cubism Sample Data. They are not covered by the MIT license of this project.
+## 🤝 参与贡献
 
-This content uses sample data owned and copyrighted by Live2D Inc. The sample data are utilized in accordance with the terms and conditions set by Live2D Inc. (See [Live2D Free Material License Agreement](https://www.live2d.jp/en/terms/live2d-free-material-license-agreement/) and [Terms of Use](https://www.live2d.com/eula/live2d-sample-model-terms_en.html)).
+本项目基于 [Open-LLM-VTuber](https://github.com/t41372/Open-LLM-VTuber) 进行修改和优化，专注于教育学习场景。
 
-Note: For commercial use, especially by medium or large-scale enterprises, the use of these Live2D sample models may be subject to additional licensing requirements. If you plan to use this project commercially, please ensure that you have the appropriate permissions from Live2D Inc., or use versions of the project without these models.
+## 📄 开源协议
 
+本项目采用 MIT 许可证。详见 [LICENSE](LICENSE)
 
-## Contributors
-Thanks our contributors and maintainers for making this project possible.
+### Live2D 模型声明
 
-<a href="https://github.com/Open-LLM-VTuber/Open-LLM-VTuber/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=Open-LLM-VTuber/Open-LLM-VTuber" />
-</a>
+本项目包含的 Live2D 样本模型由 Live2D Inc. 提供，遵循其独立的使用许可。
 
+## 🎉 致谢
 
-## Star History
+- [Open-LLM-VTuber](https://github.com/t41372/Open-LLM-VTuber) - 原始项目
+- [FunASR](https://github.com/alibaba-damo-academy/FunASR) - 语音识别
+- [Live2D](https://www.live2d.com/) - 数字人渲染
+- [StepFun](https://www.stepfun.com/) - 大语言模型 API
 
-[![Star History Chart](https://api.star-history.com/svg?repos=t41372/open-llm-vtuber&type=Date)](https://star-history.com/#t41372/open-llm-vtuber&Date)
-
-
-
-
-
+---
