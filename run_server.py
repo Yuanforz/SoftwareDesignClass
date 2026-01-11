@@ -8,7 +8,6 @@ from pathlib import Path
 import tomli
 import uvicorn
 from loguru import logger
-from upgrade_codes.upgrade_manager import UpgradeManager
 
 from src.open_llm_vtuber.server import WebSocketServer
 from src.open_llm_vtuber.config_manager import Config, read_yaml, validate_config
@@ -16,7 +15,6 @@ from src.open_llm_vtuber.config_manager import Config, read_yaml, validate_confi
 os.environ["HF_HOME"] = str(Path(__file__).parent / "models")
 os.environ["MODELSCOPE_CACHE"] = str(Path(__file__).parent / "models")
 
-upgrade_manager = UpgradeManager()
 
 
 def get_version() -> str:
@@ -52,8 +50,6 @@ def check_frontend_submodule(lang=None):
     Check if the frontend submodule is initialized. If not, attempt to initialize it.
     If initialization fails, log an error message.
     """
-    if lang is None:
-        lang = upgrade_manager.lang
 
     frontend_path = Path(__file__).parent / "frontend" / "index.html"
     if not frontend_path.exists():
@@ -122,16 +118,12 @@ def run(console_log_level: str):
     logger.info(f"Open-LLM-VTuber, version v{get_version()}")
 
     # Get selected language
-    lang = upgrade_manager.lang
+    lang = "zh"  # Default to Chinese
 
     # Check if the frontend submodule is initialized
     check_frontend_submodule(lang)
 
     # Sync user config with default config
-    try:
-        upgrade_manager.sync_user_config()
-    except Exception as e:
-        logger.error(f"Error syncing user config: {e}")
 
     atexit.register(WebSocketServer.clean_cache)
 

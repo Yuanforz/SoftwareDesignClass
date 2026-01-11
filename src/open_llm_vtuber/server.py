@@ -134,13 +134,6 @@ class WebSocketServer:
             name="avatars",
         )
 
-        # Mount web tool directory separately from frontend
-        self.app.mount(
-            "/web-tool",
-            CORSStaticFiles(directory="web_tool", html=True),
-            name="web_tool",
-        )
-
         # Mount main frontend last (as catch-all)
         self.app.mount(
             "/",
