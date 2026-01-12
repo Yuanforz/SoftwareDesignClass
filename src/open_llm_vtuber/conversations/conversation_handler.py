@@ -73,6 +73,69 @@ async def handle_conversation_trigger(
     if wake_word_config:
         logger.info(f"Wake word config: enabled={wake_word_config.get('enabled')}, words={wake_word_config.get('words')}")
 
+    # 获取停止词配置（仅语音输入时有效，用于语音打断）
+    stop_word_config = data.get("stop_word_config", None)
+    if stop_word_config:
+        logger.info(f"Stop word config: enabled={stop_word_config.get('enabled')}, words={stop_word_config.get('words')}")
+
+    # 停止词早期检测：如果是语音输入且启用了停止词，先进行 ASR 检测
+    # 如果检测到停止词，直接触发打断而不是启动新对话
+    pre_transcribed_text = None  # 预转录的文本，避免 single_conversation 重复 ASR
+    if msg_type == "mic-audio-end" and stop_word_config and stop_word_config.get("enabled", False):
+        stop_words = stop_word_config.get("words", [])
+        fuzzy_pinyin = stop_word_config.get("fuzzy_pinyin", False)
+        
+        if stop_words and isinstance(user_input, np.ndarray) and len(user_input) > 0:
+            # 先进行语音识别
+            try:
+                transcribed_text = await context.asr_engine.async_transcribe_np(user_input)
+                if transcribed_text:
+                    transcribed_text = transcribed_text.strip()
+                    pre_transcribed_text = transcribed_text  # 保存结果供后续使用
+                    logger.info(f"Stop word early check - ASR result: '{transcribed_text}'")
+                    
+                    # 检测停止词
+                    from .conversation_utils import check_stop_word
+                    result = check_stop_word(transcribed_text, stop_words, fuzzy_pinyin)
+                    
+                    if result["has_stop_word"]:
+                        matched_word = result["matched_word"]
+                        logger.info(f"🛑 Stop word '{matched_word}' detected early, triggering interrupt instead of new conversation")
+                        
+                        # 清空音频接收缓冲区
+                        if client_uid in received_data_buffers:
+                            received_data_buffers[client_uid] = np.array([])
+                            logger.info(f"🧹 Cleared audio buffer for client {client_uid}")
+                        
+                        # 发送识别结果给前端（标记为停止词）
+                        await websocket.send_text(
+                            json.dumps({
+                                "type": "user-input-transcription",
+                                "text": f"（停止词：{matched_word}）",
+                                "original_text": transcribed_text,
+                                "is_stop_word": True
+                            })
+                        )
+                        
+                        # 直接触发打断处理（取消当前正在进行的对话任务）
+                        await handle_individual_interrupt(
+                            client_uid=client_uid,
+                            current_conversation_tasks=current_conversation_tasks,
+                            context=context,
+                            heard_response="",  # 被打断的响应，这里为空
+                        )
+                        
+                        # 发送打断控制信号给前端
+                        await websocket.send_text(
+                            json.dumps({"type": "control", "text": "interrupt"})
+                        )
+                        
+                        # 不启动新对话，直接返回
+                        return
+            except Exception as e:
+                logger.error(f"Stop word early check failed: {e}")
+                # 失败时继续正常流程
+
     # 处理图片数据：将前端发送的 base64 字符串数组转换为后端期望的格式
     raw_images = data.get("images")
     images = None
@@ -141,6 +204,8 @@ async def handle_conversation_trigger(
                 session_emoji=session_emoji,
                 metadata=metadata,
                 wake_word_config=wake_word_config,
+                stop_word_config=stop_word_config,
+                pre_transcribed_text=pre_transcribed_text,  # 预转录文本，避免重复 ASR
             )
         )
 
@@ -151,32 +216,59 @@ async def handle_individual_interrupt(
     context: ServiceContext,
     heard_response: str,
 ):
+    """处理单用户对话打断
+    
+    执行以下清理操作：
+    1. 取消正在进行的对话任务（停止 LLM 生成和 TTS 合成）
+    2. 通知 agent_engine 处理打断（更新内存/历史）
+    3. 重置 agent_engine 的打断标志
+    4. 记录打断到历史
+    """
+    logger.info(f"🛑 Processing interrupt for client {client_uid}")
+    
     if client_uid in current_conversation_tasks:
         task = current_conversation_tasks[client_uid]
         if task and not task.done():
+            # 取消任务会触发 CancelledError，终止所有正在进行的异步操作
             task.cancel()
+            # 等待任务真正被取消
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=0.5)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
             logger.info("🛑 Conversation task was successfully interrupted")
+        
+        # 清除任务引用
+        current_conversation_tasks[client_uid] = None
 
-        try:
-            context.agent_engine.handle_interrupt(heard_response)
-        except Exception as e:
-            logger.error(f"Error handling interrupt: {e}")
+    # 通知 agent_engine 处理打断
+    try:
+        context.agent_engine.handle_interrupt(heard_response)
+        # 重置打断标志，为下一次对话做准备
+        if hasattr(context.agent_engine, 'reset_interrupt'):
+            context.agent_engine.reset_interrupt()
+            logger.debug("Agent interrupt flag reset")
+    except Exception as e:
+        logger.error(f"Error handling interrupt: {e}")
 
-        if context.history_uid:
-            store_message(
-                conf_uid=context.character_config.conf_uid,
-                history_uid=context.history_uid,
-                role="ai",
-                content=heard_response,
-                name=context.character_config.character_name,
-                avatar=context.character_config.avatar,
-            )
-            store_message(
-                conf_uid=context.character_config.conf_uid,
-                history_uid=context.history_uid,
-                role="system",
-                content="[Interrupted by user]",
-            )
+    # 记录打断到历史
+    if context.history_uid and heard_response:
+        store_message(
+            conf_uid=context.character_config.conf_uid,
+            history_uid=context.history_uid,
+            role="ai",
+            content=heard_response,
+            name=context.character_config.character_name,
+            avatar=context.character_config.avatar,
+        )
+        store_message(
+            conf_uid=context.character_config.conf_uid,
+            history_uid=context.history_uid,
+            role="system",
+            content="[Interrupted by user]",
+        )
+    
+    logger.info(f"✅ Interrupt handling complete for client {client_uid}")
 
 
 async def handle_group_interrupt(

@@ -11,6 +11,8 @@ const AppState = {
     live2dModel: null,
     // 新增：待发送的附件列表
     pendingAttachments: [],
+    // 打断状态：用于忽略打断后的音频消息
+    interruptActive: false,
     
     // Live2D 模型配置（从后端加载）
     modelConfig: {
@@ -48,6 +50,9 @@ const AppState = {
         fuzzyPinyinMatch: true,       // 是否启用模糊拼音匹配
         voicePromptInjection: true,   // 是否启用语音提示词注入
         voiceInterruptEnabled: true,  // 是否启用语音打断（说话时打断 AI 回复）
+        // 停止词设置
+        stopWordEnabled: false,       // 是否启用停止词检测（关闭语音打断时可用）
+        stopWords: ['停', '停止', '闭嘴', '安静'],  // 停止词列表
     }
 };
 
@@ -127,6 +132,11 @@ function handleWebSocketMessage(data) {
         
         case 'audio':
             // 音频消息（包含 TTS 和文本）
+            // 如果处于打断状态，忽略后续音频
+            if (AppState.interruptActive) {
+                console.log('🚫 打断状态中，忽略音频消息');
+                break;
+            }
             if (data.display_text && data.display_text.text) {
                 // 移除情感标签（如 [joy], [sad] 等）
                 const cleanText = data.display_text.text.replace(/\[\w+\]\s*/g, '');
@@ -160,6 +170,8 @@ function handleWebSocketMessage(data) {
                 updateMicStatus(false);
             } else if (controlText === 'conversation-chain-start') {
                 console.log('🔗 对话链开始');
+                // 新对话开始，解除打断状态
+                AppState.interruptActive = false;
             } else if (controlText === 'interrupt') {
                 // 收到打断信号，停止所有音频
                 console.log('🛑 收到打断信号');
@@ -174,10 +186,21 @@ function handleWebSocketMessage(data) {
             break;
         
         case 'user-input-transcription':
-            // 语音识别结果 - 检查唤醒词
+            // 语音识别结果 - 检查停止词并显示文本
             const transcribedText = data.text || '';
+            const isStopWordFromBackend = data.is_stop_word || false;
+            
             if (transcribedText.trim()) {
                 console.log('🗣️ 语音识别结果:', transcribedText);
+                
+                // 如果后端已经检测到停止词，直接触发打断
+                if (isStopWordFromBackend) {
+                    console.log('🛑 后端检测到停止词，触发打断');
+                    sendMessage({ type: 'interrupt-signal' });
+                    stopAllAudio();
+                    // 不显示停止词消息
+                    break;
+                }
                 
                 // 后端已经处理过唤醒词检测（包括拼音模糊匹配），
                 // 如果能收到这个消息，说明已经通过了唤醒词检测或未启用唤醒词
@@ -569,7 +592,15 @@ const AudioQueue = {
 
 // 全局函数入口（保持兼容性）
 function stopAllAudio() {
+    // 设置打断状态，忽略后续音频消息
+    AppState.interruptActive = true;
     AudioQueue.stopAll();
+    
+    // 2秒后自动解除打断状态（确保新的对话可以正常播放）
+    setTimeout(() => {
+        AppState.interruptActive = false;
+        console.log('✅ 打断状态已解除');
+    }, 2000);
 }
 
 // ==================== Markdown & LaTeX 渲染 ====================
@@ -999,6 +1030,91 @@ function checkWakeWord(text) {
 }
 
 /**
+ * 检查文本是否包含停止词（用于语音打断）
+ * @param {string} text - 要检查的文本
+ * @returns {object} - { hasStopWord: boolean, matchedWord: string }
+ */
+function checkStopWord(text) {
+    const vr = AppState.voiceRecording;
+    
+    // 如果未启用停止词检测，直接返回
+    if (!vr.stopWordEnabled) {
+        return { hasStopWord: false, matchedWord: '' };
+    }
+    
+    const normalizedText = text.toLowerCase().trim();
+    
+    for (const stopWord of vr.stopWords) {
+        const normalizedStopWord = stopWord.toLowerCase().trim();
+        if (!normalizedStopWord) continue;
+        
+        // 检查整个文本是否就是停止词（或只包含停止词）
+        // 用户可能只说"停"或"停止"
+        if (normalizedText === normalizedStopWord || 
+            normalizedText.includes(normalizedStopWord)) {
+            console.log(`🛑 检测到停止词: "${stopWord}" in "${text}"`);
+            return {
+                hasStopWord: true,
+                matchedWord: stopWord
+            };
+        }
+    }
+    
+    return {
+        hasStopWord: false,
+        matchedWord: ''
+    };
+}
+
+/**
+ * 使用拼音检查停止词（模糊匹配）
+ * @param {string} textPinyin - 文本的拼音（用空格分隔）
+ * @returns {object} - { hasStopWord: boolean, matchedWord: string }
+ */
+function checkStopWordByPinyin(textPinyin) {
+    const vr = AppState.voiceRecording;
+    
+    // 如果未启用停止词检测，直接返回
+    if (!vr.stopWordEnabled) {
+        return { hasStopWord: false, matchedWord: '' };
+    }
+    
+    // 停止词的常用拼音映射
+    const stopWordPinyinMap = {
+        '停': 'ting',
+        '停止': 'ting zhi',
+        '闭嘴': 'bi zui',
+        '安静': 'an jing',
+        '够了': 'gou le',
+        '好了': 'hao le',
+        '行了': 'xing le',
+        '别说了': 'bie shuo le'
+    };
+    
+    const normalizedTextPinyin = textPinyin.toLowerCase().trim();
+    
+    for (const stopWord of vr.stopWords) {
+        const stopWordPinyin = stopWordPinyinMap[stopWord] || '';
+        if (!stopWordPinyin) continue;
+        
+        // 检查拼音是否匹配
+        if (normalizedTextPinyin === stopWordPinyin || 
+            normalizedTextPinyin.includes(stopWordPinyin)) {
+            console.log(`🛑 拼音检测到停止词: "${stopWord}" (pinyin: ${stopWordPinyin})`);
+            return {
+                hasStopWord: true,
+                matchedWord: stopWord
+            };
+        }
+    }
+    
+    return {
+        hasStopWord: false,
+        matchedWord: ''
+    };
+}
+
+/**
  * 从 localStorage 加载唤醒词设置
  */
 function loadWakeWordSettings() {
@@ -1041,9 +1157,29 @@ function loadWakeWordSettings() {
         vr.voiceInterruptEnabled = savedVoiceInterrupt === 'true';
     }
     
+    // 加载停止词启用状态
+    const savedStopWordEnabled = localStorage.getItem('stopWordEnabled');
+    if (savedStopWordEnabled !== null) {
+        vr.stopWordEnabled = savedStopWordEnabled === 'true';
+    }
+    
+    // 加载停止词列表
+    const savedStopWords = localStorage.getItem('stopWords');
+    if (savedStopWords) {
+        try {
+            const words = JSON.parse(savedStopWords);
+            if (Array.isArray(words) && words.length > 0) {
+                vr.stopWords = words;
+            }
+        } catch (e) {
+            console.warn('加载停止词设置失败:', e);
+        }
+    }
+    
     console.log(`🎤 唤醒词设置: ${vr.wakeWordEnabled ? '启用' : '禁用'}, 词汇: ${vr.wakeWords.join('/')}`);
     console.log(`🎤 模糊拼音: ${vr.fuzzyPinyinMatch ? '启用' : '禁用'}, 语音注入: ${vr.voicePromptInjection ? '启用' : '禁用'}`);
     console.log(`🎤 语音打断: ${vr.voiceInterruptEnabled ? '启用' : '禁用'}`);
+    console.log(`🎤 停止词: ${vr.stopWordEnabled ? '启用' : '禁用'}, 词汇: ${vr.stopWords.join('/')}`);
 }
 
 // ==================== 麦克风录音模块 ====================
@@ -1314,7 +1450,7 @@ const VoiceRecorder = {
             audio: audioArray
         });
         
-        // 然后发送结束信号，附带唤醒词设置
+        // 然后发送结束信号，附带唤醒词和停止词设置
         sendMessage({
             type: 'mic-audio-end',
             wake_word_config: {
@@ -1322,6 +1458,11 @@ const VoiceRecorder = {
                 words: vr.wakeWords,
                 fuzzy_pinyin: vr.fuzzyPinyinMatch,
                 voice_prompt_injection: vr.voicePromptInjection
+            },
+            stop_word_config: {
+                enabled: vr.stopWordEnabled && !vr.voiceInterruptEnabled, // 只有关闭语音打断时才启用
+                words: vr.stopWords,
+                fuzzy_pinyin: vr.fuzzyPinyinMatch  // 复用模糊拼音设置
             }
         });
         
@@ -1514,8 +1655,16 @@ function showSettingsModal() {
     document.getElementById('voice-prompt-toggle').checked = vr.voicePromptInjection;
     document.getElementById('voice-interrupt-toggle').checked = vr.voiceInterruptEnabled;
     
+    // 同步停止词设置（带空值检查）
+    const stopWordToggle = document.getElementById('stop-word-toggle');
+    const stopWordInput = document.getElementById('stop-word-input');
+    if (stopWordToggle) stopWordToggle.checked = vr.stopWordEnabled;
+    if (stopWordInput) stopWordInput.value = vr.stopWords.join(',');
+    
     // 根据唤醒词开关状态显示/隐藏输入框
     updateWakeWordInputVisibility();
+    // 根据停止词开关状态显示/隐藏输入框
+    updateStopWordInputVisibility();
 }
 
 // 模态窗口关闭
@@ -1552,6 +1701,24 @@ function updateWakeWordInputVisibility() {
     }
 }
 
+// 停止词开关变化
+const stopWordToggle = document.getElementById('stop-word-toggle');
+if (stopWordToggle) {
+    stopWordToggle.addEventListener('change', (e) => {
+        updateStopWordInputVisibility();
+    });
+}
+
+// 更新停止词输入框可见性
+function updateStopWordInputVisibility() {
+    const container = document.getElementById('stop-word-input-container');
+    const toggle = document.getElementById('stop-word-toggle');
+    const isEnabled = toggle ? toggle.checked : false;
+    if (container) {
+        container.style.display = isEnabled ? 'block' : 'none';
+    }
+}
+
 // 保存灵犀设置（需要同步到后端）
 document.getElementById('save-settings-btn').addEventListener('click', () => {
     // 更新本地状态
@@ -1570,12 +1737,29 @@ document.getElementById('save-settings-btn').addEventListener('click', () => {
         vr.wakeWords = wakeWordInput.split(',').map(w => w.trim()).filter(w => w.length > 0);
     }
     
+    // 更新停止词设置（带空值检查）
+    const stopWordToggleEl = document.getElementById('stop-word-toggle');
+    const stopWordInputEl = document.getElementById('stop-word-input');
+    if (stopWordToggleEl) {
+        vr.stopWordEnabled = stopWordToggleEl.checked;
+    }
+    if (stopWordInputEl) {
+        const stopWordInputVal = stopWordInputEl.value.trim();
+        if (stopWordInputVal) {
+            vr.stopWords = stopWordInputVal.split(',').map(w => w.trim()).filter(w => w.length > 0);
+        }
+    }
+    
     // 保存唤醒词设置到 localStorage
     localStorage.setItem('wakeWordEnabled', vr.wakeWordEnabled);
     localStorage.setItem('wakeWords', JSON.stringify(vr.wakeWords));
     localStorage.setItem('fuzzyPinyinMatch', vr.fuzzyPinyinMatch);
     localStorage.setItem('voicePromptInjection', vr.voicePromptInjection);
     localStorage.setItem('voiceInterruptEnabled', vr.voiceInterruptEnabled);
+    
+    // 保存停止词设置到 localStorage
+    localStorage.setItem('stopWordEnabled', vr.stopWordEnabled);
+    localStorage.setItem('stopWords', JSON.stringify(vr.stopWords));
     
     // 发送到后端保存
     sendMessage({
@@ -1589,7 +1773,8 @@ document.getElementById('save-settings-btn').addEventListener('click', () => {
     
     // 显示保存成功提示
     const wakeStatus = vr.wakeWordEnabled ? `唤醒词: ${vr.wakeWords.join('/')}` : '直接对话模式';
-    showToast(`✅ 设置已保存 (${wakeStatus})`);
+    const stopStatus = vr.stopWordEnabled ? `, 停止词: ${vr.stopWords.join('/')}` : '';
+    showToast(`✅ 设置已保存 (${wakeStatus}${stopStatus})`);
     
     // 关闭设置窗口
     settingsModal.classList.add('hidden');

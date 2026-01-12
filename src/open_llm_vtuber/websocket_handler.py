@@ -376,6 +376,11 @@ class WebSocketHandler:
         context = self.client_contexts[client_uid]
         group = self.chat_group_manager.get_client_group(client_uid)
 
+        # 立即清空该客户端的音频接收缓冲区
+        if client_uid in self.received_data_buffers:
+            self.received_data_buffers[client_uid] = np.array([])
+            logger.info(f"🧹 Cleared audio buffer for client {client_uid}")
+
         if group and len(group.members) > 1:
             await handle_group_interrupt(
                 group_id=group.group_id,

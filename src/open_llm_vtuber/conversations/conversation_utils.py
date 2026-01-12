@@ -142,6 +142,8 @@ async def process_user_input(
     asr_engine: ASRInterface,
     websocket_send: WebSocketSend,
     wake_word_config: Optional[dict] = None,
+    stop_word_config: Optional[dict] = None,
+    is_from_voice: bool = False,
 ) -> str:
     """Process user input, converting audio to text if needed.
     
@@ -152,12 +154,18 @@ async def process_user_input(
         wake_word_config: Optional wake word configuration
             - enabled: bool - whether wake word detection is enabled
             - words: list[str] - list of wake words to detect
+        stop_word_config: Optional stop word configuration (for interrupting AI)
+            - enabled: bool - whether stop word detection is enabled
+            - words: list[str] - list of stop words to detect
+            - fuzzy_pinyin: bool - whether to use pinyin matching
+        is_from_voice: Whether input originally came from voice (for pre-transcribed text)
     
     Returns:
         str: The processed text input. Returns empty string if:
             - Audio transcription failed or returned empty
             - Input text was empty after stripping
             - Wake word is enabled but not detected
+        Returns "__STOP_WORD__" if stop word is detected (caller should send interrupt signal)
     """
     if isinstance(user_input, np.ndarray):
         logger.info("Transcribing audio input...")
@@ -180,6 +188,26 @@ async def process_user_input(
         if input_text in invalid_patterns:
             logger.warning(f"ASR returned noise-like text: '{input_text}', skipping")
             return ""
+        
+        # 停止词检测（优先级高于唤醒词）
+        if stop_word_config and stop_word_config.get("enabled", False):
+            stop_words = stop_word_config.get("words", [])
+            fuzzy_pinyin = stop_word_config.get("fuzzy_pinyin", False)
+            if stop_words:
+                result = check_stop_word(input_text, stop_words, fuzzy_pinyin)
+                if result["has_stop_word"]:
+                    matched_word = result["matched_word"]
+                    logger.info(f"Stop word '{matched_word}' detected in: '{input_text}', triggering interrupt")
+                    # 发送原始文本给前端，让前端知道检测到了停止词
+                    await websocket_send(
+                        json.dumps({
+                            "type": "user-input-transcription", 
+                            "text": f"（停止词：{matched_word}）",
+                            "original_text": input_text,
+                            "is_stop_word": True
+                        })
+                    )
+                    return "__STOP_WORD__"
         
         # 唤醒词检测
         if wake_word_config and wake_word_config.get("enabled", False):
@@ -216,9 +244,48 @@ async def process_user_input(
         )
         return input_text
     
-    # 文本输入也进行清理
+    # 文本输入处理
     if isinstance(user_input, str):
-        return user_input.strip()
+        input_text = user_input.strip()
+        
+        # 如果来自语音（预转录文本），需要执行唤醒词检测
+        if is_from_voice and input_text:
+            # 唤醒词检测
+            if wake_word_config and wake_word_config.get("enabled", False):
+                wake_words = wake_word_config.get("words", [])
+                fuzzy_pinyin = wake_word_config.get("fuzzy_pinyin", False)
+                if wake_words:
+                    result = check_wake_word(input_text, wake_words, fuzzy_pinyin)
+                    if result["has_wake_word"]:
+                        clean_text = result["clean_text"]
+                        matched_word = result["matched_word"]
+                        logger.info(f"Wake word '{matched_word}' detected (pre-transcribed), question: '{clean_text}'")
+                        
+                        if clean_text:
+                            # 发送识别结果（已去掉唤醒词）
+                            await websocket_send(
+                                json.dumps({"type": "user-input-transcription", "text": clean_text})
+                            )
+                            return clean_text
+                        else:
+                            # 只说了唤醒词，没有后续内容
+                            logger.info(f"Only wake word '{matched_word}' detected, waiting for more input")
+                            await websocket_send(
+                                json.dumps({"type": "user-input-transcription", "text": f"（唤醒词：{matched_word}）"})
+                            )
+                            return ""
+                    else:
+                        # 没有检测到唤醒词
+                        logger.info(f"Wake word not detected in pre-transcribed: '{input_text}', skipping")
+                        # 不发送识别结果，静默忽略
+                        return ""
+            
+            # 没有启用唤醒词，发送转录结果并返回
+            await websocket_send(
+                json.dumps({"type": "user-input-transcription", "text": input_text})
+            )
+        
+        return input_text
     
     return user_input
 
@@ -327,6 +394,69 @@ def check_wake_word(text: str, wake_words: list, fuzzy_pinyin: bool = False) -> 
         "has_wake_word": False,
         "matched_word": "",
         "clean_text": text
+    }
+
+
+def check_stop_word(text: str, stop_words: list, fuzzy_pinyin: bool = False) -> dict:
+    """检查文本是否包含停止词（用于语音打断）
+    
+    停止词检测比唤醒词更宽松：只要文本包含停止词就触发
+    
+    Args:
+        text: 要检查的文本
+        stop_words: 停止词列表
+        fuzzy_pinyin: 是否启用拼音模糊匹配
+        
+    Returns:
+        dict: {
+            "has_stop_word": bool,
+            "matched_word": str
+        }
+    """
+    normalized_text = text.lower().strip()
+    
+    # 如果启用拼音模糊匹配，尝试导入 pypinyin
+    pinyin_available = False
+    text_pinyin = ""
+    if fuzzy_pinyin:
+        try:
+            from pypinyin import lazy_pinyin
+            pinyin_available = True
+            # 将文本转换为拼音
+            text_pinyin = ''.join(lazy_pinyin(normalized_text))
+            logger.debug(f"Stop word pinyin check: '{normalized_text}' -> '{text_pinyin}'")
+        except ImportError:
+            logger.warning("pypinyin not installed, falling back to exact matching")
+            pinyin_available = False
+    
+    for stop_word in stop_words:
+        normalized_stop_word = stop_word.lower().strip()
+        if not normalized_stop_word:
+            continue
+        
+        # 精确匹配：整个文本就是停止词，或文本包含停止词
+        if normalized_text == normalized_stop_word or normalized_stop_word in normalized_text:
+            logger.info(f"Stop word exact match: '{stop_word}' in '{text}'")
+            return {
+                "has_stop_word": True,
+                "matched_word": stop_word
+            }
+        
+        # 拼音模糊匹配
+        if fuzzy_pinyin and pinyin_available:
+            stop_word_pinyin = ''.join(lazy_pinyin(normalized_stop_word))
+            
+            # 检查拼音是否匹配
+            if text_pinyin == stop_word_pinyin or stop_word_pinyin in text_pinyin:
+                logger.info(f"Stop word pinyin match: '{stop_word}' ({stop_word_pinyin}) in '{text}' ({text_pinyin})")
+                return {
+                    "has_stop_word": True,
+                    "matched_word": stop_word
+                }
+    
+    return {
+        "has_stop_word": False,
+        "matched_word": ""
     }
 
 

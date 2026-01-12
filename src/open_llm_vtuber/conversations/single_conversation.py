@@ -31,6 +31,8 @@ async def process_single_conversation(
     session_emoji: str = np.random.choice(EMOJI_LIST),
     metadata: Optional[Dict[str, Any]] = None,
     wake_word_config: Optional[Dict[str, Any]] = None,
+    stop_word_config: Optional[Dict[str, Any]] = None,
+    pre_transcribed_text: Optional[str] = None,
 ) -> str:
     """Process a single-user conversation turn
 
@@ -43,6 +45,9 @@ async def process_single_conversation(
         session_emoji: Emoji identifier for the conversation
         metadata: Optional metadata for special processing flags
         wake_word_config: Optional wake word configuration for voice input
+        stop_word_config: Optional stop word configuration for voice interrupt
+        pre_transcribed_text: Optional pre-transcribed text (from early stop word check)
+                              If provided, skip ASR and use this text directly
 
     Returns:
         str: Complete response text
@@ -52,10 +57,27 @@ async def process_single_conversation(
     full_response = ""  # Initialize full_response here
 
     try:
+        # 如果已有预转录文本（来自停止词检测），使用它来避免重复 ASR
+        # 但仍需要经过唤醒词检测等处理
+        effective_input = user_input
+        is_from_voice = isinstance(user_input, np.ndarray)  # 标记原始输入是否来自语音
+        if pre_transcribed_text is not None and is_from_voice:
+            logger.info(f"Using pre-transcribed text: '{pre_transcribed_text}'")
+            effective_input = pre_transcribed_text
+            # 注意：这里仍需调用 process_user_input 来处理唤醒词检测等逻辑
+            # process_user_input 会检测 effective_input 是字符串，跳过 ASR 直接处理
+        
         # Process user input first (before sending "Thinking..." to check wake word)
         input_text = await process_user_input(
-            user_input, context.asr_engine, websocket_send, wake_word_config
+            effective_input, context.asr_engine, websocket_send, wake_word_config, stop_word_config,
+            is_from_voice=is_from_voice  # 传递语音来源标记，即使已转为文本仍需执行唤醒词检测
         )
+
+        # 检查是否是停止词（触发打断）
+        if input_text == "__STOP_WORD__":
+            logger.info("Stop word detected, sending interrupt signal")
+            await websocket_send(json.dumps({"type": "control", "text": "interrupt"}))
+            return ""
 
         # 检查输入是否有效（语音识别可能返回空字符串，或唤醒词检测未通过）
         if not input_text:
