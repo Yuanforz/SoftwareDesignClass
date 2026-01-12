@@ -12,11 +12,41 @@ const AppState = {
     // 新增：待发送的附件列表
     pendingAttachments: [],
     
+    // Live2D 模型配置（从后端加载）
+    modelConfig: {
+        url: null,           // 模型 URL
+        name: null,          // 模型名称
+        kScale: 0.5,         // 缩放系数
+        loaded: false,       // 是否已加载
+    },
+    
     // 灵犀助教特有设置（与后端 lingxi_settings 同步）
     lingxiSettings: {
         ttsEngine: 'step_tts',        // 'step_tts' 或 'edge_tts'
         audioMergeEnabled: false,      // 音频合并生成
         multimodalAutoSwitch: true,    // 多模态自动切换
+    },
+    
+    // 语音录制状态
+    voiceRecording: {
+        isRecording: false,           // 是否正在录音
+        isPushToTalk: false,          // 是否按键录音模式
+        audioContext: null,           // AudioContext
+        mediaStream: null,            // MediaStream
+        analyser: null,               // AnalyserNode 用于音量检测
+        processor: null,              // ScriptProcessor 用于捕获音频
+        audioChunks: [],              // 录音数据块
+        silenceStart: null,           // 静音开始时间
+        lastSpeechTime: null,         // 最后检测到语音的时间
+        vadEnabled: true,             // VAD 自动检测是否启用
+        vadThreshold: 15,             // VAD 音量阈值 (0-100)
+        silenceTimeout: 1500,         // 静音超时时间 (ms)，超过这个时间认为说话结束
+        minRecordTime: 500,           // 最小录音时间 (ms)
+        // 唤醒词设置
+        wakeWordEnabled: false,       // 是否启用唤醒词检测
+        wakeWords: ['灵犀', '小灵', '助教'],  // 唤醒词列表
+        fuzzyPinyinMatch: true,       // 是否启用模糊拼音匹配
+        voicePromptInjection: true,   // 是否启用语音提示词注入
     }
 };
 
@@ -142,6 +172,19 @@ function handleWebSocketMessage(data) {
             addMessage('assistant', `❌ 错误: ${data.text}`);
             break;
         
+        case 'user-input-transcription':
+            // 语音识别结果 - 检查唤醒词
+            const transcribedText = data.text || '';
+            if (transcribedText.trim()) {
+                console.log('🗣️ 语音识别结果:', transcribedText);
+                
+                // 后端已经处理过唤醒词检测（包括拼音模糊匹配），
+                // 如果能收到这个消息，说明已经通过了唤醒词检测或未启用唤醒词
+                // 前端只需要显示文本即可
+                addMessage('user', transcribedText);
+            }
+            break;
+        
         case 'group-update':
             // 群组状态更新（暂不处理）
             console.log('群组状态:', data.members);
@@ -150,6 +193,20 @@ function handleWebSocketMessage(data) {
         case 'set-model-and-conf':
             // 模型和配置信息
             console.log('角色配置:', data.conf_name);
+            
+            // 保存模型配置
+            if (data.model_info) {
+                AppState.modelConfig.url = data.model_info.url;
+                AppState.modelConfig.name = data.model_info.name;
+                AppState.modelConfig.kScale = data.model_info.kScale || 0.5;
+                console.log('🎭 模型配置:', AppState.modelConfig);
+                
+                // 如果 Live2D 已初始化但模型未加载，现在加载
+                if (AppState.live2dApp && !AppState.modelConfig.loaded) {
+                    loadLive2DModel();
+                }
+            }
+            
             // 连接成功后，请求获取灵犀设置
             sendMessage({ type: 'fetch-lingxi-settings' });
             break;
@@ -793,21 +850,511 @@ function handleMenuAction(action) {
         case 'upload':
             triggerFileUpload();
             break;
+        case 'quit':
+            quitApplication();
+            break;
+    }
+}
+
+// 退出应用程序
+function quitApplication() {
+    if (confirm('确定要退出灵犀助教吗？')) {
+        // 尝试通过 Electron IPC 退出
+        if (window.electronAPI && window.electronAPI.quit) {
+            window.electronAPI.quit();
+        } else if (typeof require !== 'undefined') {
+            // 直接使用 electron remote
+            try {
+                const { ipcRenderer } = require('electron');
+                ipcRenderer.send('quit-app');
+            } catch (e) {
+                // 如果无法使用 IPC，尝试关闭窗口
+                window.close();
+            }
+        } else {
+            // 普通浏览器环境，尝试关闭窗口
+            window.close();
+        }
     }
 }
 
 // ==================== 功能实现 ====================
 
+// ==================== 唤醒词检测 ====================
+
+/**
+ * 检查文本是否包含唤醒词
+ * @param {string} text - 要检查的文本
+ * @returns {object} - { hasWakeWord: boolean, matchedWord: string, cleanText: string }
+ */
+function checkWakeWord(text) {
+    const vr = AppState.voiceRecording;
+    const normalizedText = text.toLowerCase().trim();
+    
+    for (const wakeWord of vr.wakeWords) {
+        const normalizedWakeWord = wakeWord.toLowerCase().trim();
+        
+        // 检查文本是否以唤醒词开头
+        if (normalizedText.startsWith(normalizedWakeWord)) {
+            // 去掉唤醒词和可能的分隔符（逗号、空格等）
+            let cleanText = text.substring(wakeWord.length).trim();
+            // 去掉开头的标点符号
+            cleanText = cleanText.replace(/^[,，、。.!！?？\s]+/, '').trim();
+            
+            return {
+                hasWakeWord: true,
+                matchedWord: wakeWord,
+                cleanText: cleanText
+            };
+        }
+        
+        // 也检查文本中间是否包含唤醒词（可能用户说"嗯灵犀"）
+        const wakeWordIndex = normalizedText.indexOf(normalizedWakeWord);
+        if (wakeWordIndex !== -1) {
+            // 去掉唤醒词及其之前的内容
+            let cleanText = text.substring(wakeWordIndex + wakeWord.length).trim();
+            cleanText = cleanText.replace(/^[,，、。.!！?？\s]+/, '').trim();
+            
+            return {
+                hasWakeWord: true,
+                matchedWord: wakeWord,
+                cleanText: cleanText
+            };
+        }
+    }
+    
+    return {
+        hasWakeWord: false,
+        matchedWord: '',
+        cleanText: text
+    };
+}
+
+/**
+ * 从 localStorage 加载唤醒词设置
+ */
+function loadWakeWordSettings() {
+    const vr = AppState.voiceRecording;
+    
+    // 加载唤醒词启用状态
+    const savedEnabled = localStorage.getItem('wakeWordEnabled');
+    if (savedEnabled !== null) {
+        vr.wakeWordEnabled = savedEnabled === 'true';
+    }
+    
+    // 加载唤醒词列表
+    const savedWords = localStorage.getItem('wakeWords');
+    if (savedWords) {
+        try {
+            const words = JSON.parse(savedWords);
+            if (Array.isArray(words) && words.length > 0) {
+                vr.wakeWords = words;
+            }
+        } catch (e) {
+            console.warn('加载唤醒词设置失败:', e);
+        }
+    }
+    
+    // 加载模糊拼音匹配设置
+    const savedFuzzyPinyin = localStorage.getItem('fuzzyPinyinMatch');
+    if (savedFuzzyPinyin !== null) {
+        vr.fuzzyPinyinMatch = savedFuzzyPinyin === 'true';
+    }
+    
+    // 加载语音提示词注入设置
+    const savedVoicePrompt = localStorage.getItem('voicePromptInjection');
+    if (savedVoicePrompt !== null) {
+        vr.voicePromptInjection = savedVoicePrompt === 'true';
+    }
+    
+    console.log(`🎤 唤醒词设置: ${vr.wakeWordEnabled ? '启用' : '禁用'}, 词汇: ${vr.wakeWords.join('/')}`);
+    console.log(`🎤 模糊拼音: ${vr.fuzzyPinyinMatch ? '启用' : '禁用'}, 语音注入: ${vr.voicePromptInjection ? '启用' : '禁用'}`);
+}
+
+// ==================== 麦克风录音模块 ====================
+const VoiceRecorder = {
+    // 初始化音频录制
+    async init() {
+        const vr = AppState.voiceRecording;
+        
+        try {
+            // 请求麦克风权限
+            vr.mediaStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    channelCount: 1,
+                    sampleRate: 16000,
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            });
+            
+            // 创建 AudioContext
+            vr.audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                sampleRate: 16000
+            });
+            
+            // 创建分析器用于检测音量
+            vr.analyser = vr.audioContext.createAnalyser();
+            vr.analyser.fftSize = 2048;
+            vr.analyser.smoothingTimeConstant = 0.3;
+            
+            // 连接音频流到分析器
+            const source = vr.audioContext.createMediaStreamSource(vr.mediaStream);
+            source.connect(vr.analyser);
+            
+            // 创建 ScriptProcessor 用于捕获原始音频数据
+            vr.processor = vr.audioContext.createScriptProcessor(4096, 1, 1);
+            source.connect(vr.processor);
+            vr.processor.connect(vr.audioContext.destination);
+            
+            // 处理音频数据
+            vr.processor.onaudioprocess = (e) => {
+                if (!AppState.micEnabled) return;
+                
+                const inputData = e.inputBuffer.getChannelData(0);
+                const volume = this.getVolume();
+                
+                // 更新音量指示器
+                this.updateVolumeIndicator(volume);
+                
+                if (vr.vadEnabled) {
+                    this.handleVAD(inputData, volume);
+                }
+            };
+            
+            console.log('✅ 麦克风初始化成功');
+            updateMicStatus(true);
+            return true;
+            
+        } catch (error) {
+            console.error('❌ 麦克风初始化失败:', error);
+            showToast('❌ 无法访问麦克风，请检查权限');
+            return false;
+        }
+    },
+    
+    // 获取当前音量 (0-100)
+    getVolume() {
+        const vr = AppState.voiceRecording;
+        if (!vr.analyser) return 0;
+        
+        const dataArray = new Uint8Array(vr.analyser.frequencyBinCount);
+        vr.analyser.getByteFrequencyData(dataArray);
+        
+        // 计算平均音量
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i];
+        }
+        return Math.round((sum / dataArray.length) * 100 / 256);
+    },
+    
+    // 更新音量指示器
+    updateVolumeIndicator(volume) {
+        const volumeBar = document.getElementById('volume-bar');
+        if (volumeBar) {
+            volumeBar.style.width = `${Math.min(volume * 2, 100)}%`;
+            
+            // 根据音量改变颜色
+            if (volume > AppState.voiceRecording.vadThreshold) {
+                volumeBar.style.backgroundColor = '#4CAF50'; // 绿色 - 检测到语音
+            } else {
+                volumeBar.style.backgroundColor = '#666'; // 灰色 - 静音
+            }
+        }
+    },
+    
+    // VAD 自动检测语音
+    handleVAD(inputData, volume) {
+        const vr = AppState.voiceRecording;
+        const now = Date.now();
+        
+        // 检测到语音
+        if (volume > vr.vadThreshold) {
+            vr.lastSpeechTime = now;
+            vr.silenceStart = null;
+            
+            // 如果还没开始录音，开始录音
+            if (!vr.isRecording) {
+                console.log('🎤 VAD: 检测到语音，开始录音');
+                this.startRecording();
+            }
+            
+            // 录制音频数据
+            if (vr.isRecording) {
+                // 转换为 Float32Array 并存储
+                const chunk = new Float32Array(inputData.length);
+                chunk.set(inputData);
+                vr.audioChunks.push(chunk);
+            }
+        } else {
+            // 静音状态
+            if (vr.isRecording) {
+                // 继续录制静音数据（保持连贯性）
+                const chunk = new Float32Array(inputData.length);
+                chunk.set(inputData);
+                vr.audioChunks.push(chunk);
+                
+                // 记录静音开始时间
+                if (!vr.silenceStart) {
+                    vr.silenceStart = now;
+                }
+                
+                // 检查是否静音超时
+                const silenceDuration = now - vr.silenceStart;
+                const recordingDuration = now - (vr.recordingStartTime || now);
+                
+                if (silenceDuration > vr.silenceTimeout && recordingDuration > vr.minRecordTime) {
+                    console.log(`🎤 VAD: 静音 ${silenceDuration}ms，结束录音`);
+                    this.stopRecordingAndSend();
+                }
+            }
+        }
+    },
+    
+    // 开始录音
+    startRecording() {
+        const vr = AppState.voiceRecording;
+        if (vr.isRecording) return;
+        
+        vr.isRecording = true;
+        vr.audioChunks = [];
+        vr.recordingStartTime = Date.now();
+        vr.silenceStart = null;
+        
+        // 更新 UI
+        const micStatus = document.getElementById('mic-status');
+        if (micStatus) {
+            micStatus.classList.add('recording');
+        }
+        
+        const micText = document.getElementById('mic-text');
+        if (micText) {
+            micText.textContent = '🔴 录音中...';
+        }
+        
+        console.log('🎤 开始录音');
+    },
+    
+    // 停止录音并发送
+    async stopRecordingAndSend() {
+        const vr = AppState.voiceRecording;
+        if (!vr.isRecording) return;
+        
+        vr.isRecording = false;
+        
+        // 更新 UI
+        const micStatus = document.getElementById('mic-status');
+        if (micStatus) {
+            micStatus.classList.remove('recording');
+        }
+        
+        const micText = document.getElementById('mic-text');
+        if (micText) {
+            micText.textContent = '处理中...';
+        }
+        
+        // 检查是否有录音数据
+        if (vr.audioChunks.length === 0) {
+            console.log('⚠️ 没有录音数据');
+            if (micText) micText.textContent = '语音监听中...';
+            return;
+        }
+        
+        // 合并所有音频块
+        const totalLength = vr.audioChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+        const mergedAudio = new Float32Array(totalLength);
+        let offset = 0;
+        for (const chunk of vr.audioChunks) {
+            mergedAudio.set(chunk, offset);
+            offset += chunk.length;
+        }
+        
+        // 清空缓冲区
+        vr.audioChunks = [];
+        
+        // 检查录音时长是否足够（至少 0.5 秒 = 8000 采样点 @ 16kHz）
+        const minSamples = 8000;
+        if (totalLength < minSamples) {
+            console.log(`⚠️ 录音太短 (${(totalLength / 16000).toFixed(2)}秒)，忽略`);
+            if (micText) micText.textContent = '语音监听中...';
+            return;
+        }
+        
+        // 检查音频是否有足够的能量（不是纯静音）
+        let maxAmplitude = 0;
+        let sumSquared = 0;
+        for (let i = 0; i < mergedAudio.length; i++) {
+            const abs = Math.abs(mergedAudio[i]);
+            if (abs > maxAmplitude) maxAmplitude = abs;
+            sumSquared += mergedAudio[i] * mergedAudio[i];
+        }
+        const rms = Math.sqrt(sumSquared / mergedAudio.length);
+        
+        // RMS 阈值：太小说明基本是静音
+        const rmsThreshold = 0.01;
+        if (rms < rmsThreshold) {
+            console.log(`⚠️ 音频能量太低 (RMS=${rms.toFixed(4)})，可能是静音，忽略`);
+            if (micText) micText.textContent = '语音监听中...';
+            return;
+        }
+        
+        console.log(`🎤 录音完成，共 ${totalLength} 采样点，约 ${(totalLength / 16000).toFixed(2)} 秒，RMS=${rms.toFixed(4)}`);
+        
+        // 发送音频数据到后端
+        this.sendAudioToBackend(mergedAudio);
+        
+        if (micText) micText.textContent = '语音监听中...';
+    },
+    
+    // 发送音频数据到后端
+    sendAudioToBackend(audioData) {
+        if (!AppState.connected) {
+            console.warn('⚠️ WebSocket 未连接');
+            return;
+        }
+        
+        // 检查数据长度
+        if (audioData.length < 8000) {
+            console.warn('⚠️ 音频数据太短，不发送');
+            return;
+        }
+        
+        const vr = AppState.voiceRecording;
+        
+        // 发送音频数据（Float32Array 格式）
+        const audioArray = Array.from(audioData);
+        
+        // 先发送音频数据
+        sendMessage({
+            type: 'mic-audio-data',
+            audio: audioArray
+        });
+        
+        // 然后发送结束信号，附带唤醒词设置
+        sendMessage({
+            type: 'mic-audio-end',
+            wake_word_config: {
+                enabled: vr.wakeWordEnabled,
+                words: vr.wakeWords,
+                fuzzy_pinyin: vr.fuzzyPinyinMatch,
+                voice_prompt_injection: vr.voicePromptInjection
+            }
+        });
+        
+        console.log('📤 已发送音频数据和结束信号');
+    },
+    
+    // 停止录制（不发送）
+    cancelRecording() {
+        const vr = AppState.voiceRecording;
+        vr.isRecording = false;
+        vr.audioChunks = [];
+        
+        const micStatus = document.getElementById('mic-status');
+        if (micStatus) {
+            micStatus.classList.remove('recording');
+        }
+        
+        const micText = document.getElementById('mic-text');
+        if (micText) {
+            micText.textContent = '语音监听中...';
+        }
+    },
+    
+    // 销毁录制器
+    destroy() {
+        const vr = AppState.voiceRecording;
+        
+        if (vr.processor) {
+            vr.processor.disconnect();
+            vr.processor = null;
+        }
+        
+        if (vr.analyser) {
+            vr.analyser.disconnect();
+            vr.analyser = null;
+        }
+        
+        if (vr.mediaStream) {
+            vr.mediaStream.getTracks().forEach(track => track.stop());
+            vr.mediaStream = null;
+        }
+        
+        if (vr.audioContext) {
+            vr.audioContext.close();
+            vr.audioContext = null;
+        }
+        
+        vr.isRecording = false;
+        vr.audioChunks = [];
+    }
+};
+
+// ==================== 按键录音（Push-to-Talk）====================
+const PushToTalk = {
+    isHolding: false,
+    
+    // 初始化按键监听
+    init() {
+        // 空格键按下开始录音
+        document.addEventListener('keydown', (e) => {
+            // 如果正在输入文本，不触发按键录音
+            if (document.activeElement.tagName === 'INPUT' || 
+                document.activeElement.tagName === 'TEXTAREA') {
+                return;
+            }
+            
+            if (e.code === 'Space' && !this.isHolding && AppState.micEnabled) {
+                e.preventDefault();
+                this.isHolding = true;
+                
+                // 暂时禁用 VAD
+                AppState.voiceRecording.vadEnabled = false;
+                
+                // 开始录音
+                VoiceRecorder.startRecording();
+                showToast('🎤 按住空格录音...');
+            }
+        });
+        
+        // 空格键松开停止录音
+        document.addEventListener('keyup', (e) => {
+            if (e.code === 'Space' && this.isHolding) {
+                e.preventDefault();
+                this.isHolding = false;
+                
+                // 停止并发送录音
+                VoiceRecorder.stopRecordingAndSend();
+                
+                // 恢复 VAD
+                setTimeout(() => {
+                    AppState.voiceRecording.vadEnabled = true;
+                }, 500);
+            }
+        });
+        
+        console.log('✅ 按键录音初始化完成 (按住空格键录音)');
+    }
+};
+
 // 麦克风控制
 function toggleMicrophone() {
     AppState.micEnabled = !AppState.micEnabled;
-    updateMicStatus(AppState.micEnabled);
     
     if (AppState.micEnabled) {
+        // 启用麦克风
+        VoiceRecorder.init();
         sendMessage({ type: 'control', text: 'start-mic' });
     } else {
+        // 禁用麦克风
+        VoiceRecorder.cancelRecording();
+        VoiceRecorder.destroy();
         sendMessage({ type: 'control', text: 'stop-mic' });
     }
+    
+    updateMicStatus(AppState.micEnabled);
 }
 
 function updateMicStatus(enabled) {
@@ -871,6 +1418,16 @@ function showSettingsModal() {
     document.getElementById('tts-engine-select').value = AppState.lingxiSettings.ttsEngine;
     document.getElementById('audio-merge-toggle').checked = AppState.lingxiSettings.audioMergeEnabled;
     document.getElementById('multimodal-auto-switch-toggle').checked = AppState.lingxiSettings.multimodalAutoSwitch;
+    
+    // 同步语音识别设置
+    const vr = AppState.voiceRecording;
+    document.getElementById('wake-word-toggle').checked = vr.wakeWordEnabled;
+    document.getElementById('wake-word-input').value = vr.wakeWords.join(',');
+    document.getElementById('fuzzy-pinyin-toggle').checked = vr.fuzzyPinyinMatch;
+    document.getElementById('voice-prompt-toggle').checked = vr.voicePromptInjection;
+    
+    // 根据唤醒词开关状态显示/隐藏输入框
+    updateWakeWordInputVisibility();
 }
 
 // 模态窗口关闭
@@ -893,12 +1450,42 @@ document.getElementById('latex-toggle').addEventListener('change', (e) => {
     AppState.latexEnabled = e.target.checked;
 });
 
+// 唤醒词开关变化
+document.getElementById('wake-word-toggle').addEventListener('change', (e) => {
+    updateWakeWordInputVisibility();
+});
+
+// 更新唤醒词输入框可见性
+function updateWakeWordInputVisibility() {
+    const container = document.getElementById('wake-word-input-container');
+    const isEnabled = document.getElementById('wake-word-toggle').checked;
+    if (container) {
+        container.style.display = isEnabled ? 'block' : 'none';
+    }
+}
+
 // 保存灵犀设置（需要同步到后端）
 document.getElementById('save-settings-btn').addEventListener('click', () => {
     // 更新本地状态
     AppState.lingxiSettings.ttsEngine = document.getElementById('tts-engine-select').value;
     AppState.lingxiSettings.audioMergeEnabled = document.getElementById('audio-merge-toggle').checked;
     AppState.lingxiSettings.multimodalAutoSwitch = document.getElementById('multimodal-auto-switch-toggle').checked;
+    
+    // 更新唤醒词设置
+    const vr = AppState.voiceRecording;
+    vr.wakeWordEnabled = document.getElementById('wake-word-toggle').checked;
+    vr.fuzzyPinyinMatch = document.getElementById('fuzzy-pinyin-toggle').checked;
+    vr.voicePromptInjection = document.getElementById('voice-prompt-toggle').checked;
+    const wakeWordInput = document.getElementById('wake-word-input').value.trim();
+    if (wakeWordInput) {
+        vr.wakeWords = wakeWordInput.split(',').map(w => w.trim()).filter(w => w.length > 0);
+    }
+    
+    // 保存唤醒词设置到 localStorage
+    localStorage.setItem('wakeWordEnabled', vr.wakeWordEnabled);
+    localStorage.setItem('wakeWords', JSON.stringify(vr.wakeWords));
+    localStorage.setItem('fuzzyPinyinMatch', vr.fuzzyPinyinMatch);
+    localStorage.setItem('voicePromptInjection', vr.voicePromptInjection);
     
     // 发送到后端保存
     sendMessage({
@@ -911,7 +1498,8 @@ document.getElementById('save-settings-btn').addEventListener('click', () => {
     });
     
     // 显示保存成功提示
-    showToast('✅ 设置已保存');
+    const wakeStatus = vr.wakeWordEnabled ? `唤醒词: ${vr.wakeWords.join('/')}` : '直接对话模式';
+    showToast(`✅ 设置已保存 (${wakeStatus})`);
     
     // 关闭设置窗口
     settingsModal.classList.add('hidden');
@@ -1188,10 +1776,43 @@ async function initLive2D() {
             autoDensity: true
         });
         
-        console.log('✅ PIXI 应用创建完成');
+        // 保存到全局状态
+        AppState.live2dApp = live2dApp;
         
-        // 加载 Live2D 模型
-        const modelUrl = 'http://127.0.0.1:12393/live2d-models/mao_pro/runtime/mao_pro.model3.json';
+        console.log('✅ PIXI 应用创建完成，等待模型配置...');
+        
+        // 如果已经有模型配置（可能 WebSocket 消息先到达），立即加载
+        if (AppState.modelConfig.url) {
+            await loadLive2DModel();
+        }
+        
+    } catch (error) {
+        console.error('❌ Live2D 初始化失败:', error);
+        showLive2DFallback('初始化失败: ' + error.message);
+    }
+}
+
+// 加载 Live2D 模型（从配置动态加载）
+async function loadLive2DModel() {
+    try {
+        if (!live2dApp) {
+            console.warn('⚠️ PIXI 应用未创建，无法加载模型');
+            return;
+        }
+        
+        if (!AppState.modelConfig.url) {
+            console.warn('⚠️ 模型 URL 未配置，无法加载模型');
+            return;
+        }
+        
+        if (AppState.modelConfig.loaded) {
+            console.log('ℹ️ 模型已加载，跳过');
+            return;
+        }
+        
+        // 构建完整的模型 URL
+        const baseUrl = 'http://127.0.0.1:12393';
+        const modelUrl = baseUrl + AppState.modelConfig.url;
         console.log('📦 加载模型:', modelUrl);
         
         // 使用 Live2DModel.from 加载模型
@@ -1206,8 +1827,11 @@ async function initLive2D() {
         
         console.log('✅ 模型加载完成');
         
+        // 保存到全局状态
+        AppState.live2dModel = live2dModel;
+        AppState.modelConfig.loaded = true;
+        
         // 设置模型大小和位置
-        // 计算合适的缩放比例，确保模型完整显示
         const canvasHeight = live2dApp.screen.height;
         const canvasWidth = live2dApp.screen.width;
         const modelHeight = live2dModel.height;
@@ -1237,16 +1861,17 @@ async function initLive2D() {
             stopAllAudio();
         });
         
-        console.log('✅ Live2D 初始化完成 (PIXI SDK)');
+        console.log('✅ Live2D 模型加载完成');
         console.log('🎭 模型信息:', {
+            name: AppState.modelConfig.name,
             width: live2dModel.width,
             height: live2dModel.height,
             scale: scale
         });
         
     } catch (error) {
-        console.error('❌ Live2D 初始化失败:', error);
-        showLive2DFallback('加载失败: ' + error.message);
+        console.error('❌ Live2D 模型加载失败:', error);
+        showLive2DFallback('模型加载失败: ' + error.message);
     }
 }
 
@@ -1275,11 +1900,24 @@ function showLive2DFallback(reason) {
 window.addEventListener('DOMContentLoaded', () => {
     console.log('🚀 灵犀助教 - 桌宠模式启动');
     
+    // 加载唤醒词设置
+    loadWakeWordSettings();
+    
     // 初始化 Live2D
     initLive2D();
     
     // 连接 WebSocket
     connectWebSocket();
+    
+    // 初始化麦克风录音
+    if (AppState.micEnabled) {
+        VoiceRecorder.init().then(success => {
+            if (success) {
+                // 初始化按键录音
+                PushToTalk.init();
+            }
+        });
+    }
     
     // 显示输入框（首次启动）
     setTimeout(() => {
@@ -1287,7 +1925,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }, 500);
     
     console.log('✅ 桌宠模式初始化完成');
-    console.log('💡 快捷键: Ctrl+/ 唤起输入框, 右键点击人物打开菜单');
+    console.log('💡 快捷键: Ctrl+/ 唤起输入框, 空格键按住录音, 右键点击人物打开菜单');
 });
 
 // ==================== 错误处理 ====================

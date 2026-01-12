@@ -30,6 +30,7 @@ async def process_single_conversation(
     images: Optional[List[Dict[str, Any]]] = None,
     session_emoji: str = np.random.choice(EMOJI_LIST),
     metadata: Optional[Dict[str, Any]] = None,
+    wake_word_config: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Process a single-user conversation turn
 
@@ -41,6 +42,7 @@ async def process_single_conversation(
         images: Optional list of image data
         session_emoji: Emoji identifier for the conversation
         metadata: Optional metadata for special processing flags
+        wake_word_config: Optional wake word configuration for voice input
 
     Returns:
         str: Complete response text
@@ -50,31 +52,48 @@ async def process_single_conversation(
     full_response = ""  # Initialize full_response here
 
     try:
-        # Send initial signals
+        # Process user input first (before sending "Thinking..." to check wake word)
+        input_text = await process_user_input(
+            user_input, context.asr_engine, websocket_send, wake_word_config
+        )
+
+        # 检查输入是否有效（语音识别可能返回空字符串，或唤醒词检测未通过）
+        if not input_text:
+            logger.info("Empty input text, ending conversation chain early")
+            # 静默结束，不发送任何消息
+            return ""
+        
+        # 语音提示词注入：如果是语音输入且启用了注入功能
+        is_voice_input = isinstance(user_input, np.ndarray)
+        voice_prompt_injection = wake_word_config and wake_word_config.get("voice_prompt_injection", False)
+        
+        # 用于发送给模型的文本（可能包含注入提示）
+        model_input_text = input_text
+        if is_voice_input and voice_prompt_injection:
+            voice_context_prompt = "【以下是语音输入转译，可能存在谐音字或识别误差，请理解原意】"
+            model_input_text = f"{voice_context_prompt}\n{input_text}"
+            logger.info(f"Voice prompt injected for model input")
+
+        # Now send initial signals (only after confirming valid input)
         await send_conversation_start_signals(websocket_send)
         logger.info(f"New Conversation Chain {session_emoji} started!")
 
-        # Process user input
-        input_text = await process_user_input(
-            user_input, context.asr_engine, websocket_send
-        )
-
-        # Create batch input
+        # Create batch input (使用可能注入了语音提示的文本)
         batch_input = create_batch_input(
-            input_text=input_text,
+            input_text=model_input_text,
             images=images,
             from_name=context.character_config.human_name,
             metadata=metadata,
         )
 
-        # Store user message (check if we should skip storing to history)
+        # Store user message (使用原始文本，不包含注入提示)
         skip_history = metadata and metadata.get("skip_history", False)
         if context.history_uid and not skip_history:
             store_message(
                 conf_uid=context.character_config.conf_uid,
                 history_uid=context.history_uid,
                 role="human",
-                content=input_text,
+                content=input_text,  # 存储原始文本
                 name=context.character_config.human_name,
             )
 

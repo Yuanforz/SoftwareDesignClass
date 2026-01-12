@@ -141,16 +141,193 @@ async def process_user_input(
     user_input: Union[str, np.ndarray],
     asr_engine: ASRInterface,
     websocket_send: WebSocketSend,
+    wake_word_config: Optional[dict] = None,
 ) -> str:
-    """Process user input, converting audio to text if needed"""
+    """Process user input, converting audio to text if needed.
+    
+    Args:
+        user_input: Audio data (np.ndarray) or text string
+        asr_engine: ASR engine for transcription
+        websocket_send: WebSocket send function
+        wake_word_config: Optional wake word configuration
+            - enabled: bool - whether wake word detection is enabled
+            - words: list[str] - list of wake words to detect
+    
+    Returns:
+        str: The processed text input. Returns empty string if:
+            - Audio transcription failed or returned empty
+            - Input text was empty after stripping
+            - Wake word is enabled but not detected
+    """
     if isinstance(user_input, np.ndarray):
         logger.info("Transcribing audio input...")
         input_text = await asr_engine.async_transcribe_np(user_input)
+        
+        # 清理和验证识别结果
+        if input_text:
+            input_text = input_text.strip()
+        
+        # 检查是否为有效文本
+        if not input_text or len(input_text) == 0:
+            logger.warning("ASR returned empty or invalid text, skipping conversation")
+            return ""
+        
+        # 过滤掉一些常见的无效识别结果
+        invalid_patterns = [
+            "。", ".", "，", ",", "!", "?",  # 单个标点
+            "嗯", "啊", "哦", "呃",  # 单个语气词
+        ]
+        if input_text in invalid_patterns:
+            logger.warning(f"ASR returned noise-like text: '{input_text}', skipping")
+            return ""
+        
+        # 唤醒词检测
+        if wake_word_config and wake_word_config.get("enabled", False):
+            wake_words = wake_word_config.get("words", [])
+            fuzzy_pinyin = wake_word_config.get("fuzzy_pinyin", False)
+            if wake_words:
+                result = check_wake_word(input_text, wake_words, fuzzy_pinyin)
+                if result["has_wake_word"]:
+                    clean_text = result["clean_text"]
+                    matched_word = result["matched_word"]
+                    logger.info(f"Wake word '{matched_word}' detected, question: '{clean_text}'")
+                    
+                    if clean_text:
+                        # 发送识别结果（已去掉唤醒词）
+                        await websocket_send(
+                            json.dumps({"type": "user-input-transcription", "text": clean_text})
+                        )
+                        return clean_text
+                    else:
+                        # 只说了唤醒词，没有后续内容
+                        logger.info(f"Only wake word '{matched_word}' detected, waiting for more input")
+                        await websocket_send(
+                            json.dumps({"type": "user-input-transcription", "text": f"（唤醒词：{matched_word}）"})
+                        )
+                        return ""
+                else:
+                    # 没有检测到唤醒词
+                    logger.info(f"Wake word not detected in: '{input_text}', skipping")
+                    # 不发送识别结果，静默忽略
+                    return ""
+        
         await websocket_send(
             json.dumps({"type": "user-input-transcription", "text": input_text})
         )
         return input_text
+    
+    # 文本输入也进行清理
+    if isinstance(user_input, str):
+        return user_input.strip()
+    
     return user_input
+
+
+def check_wake_word(text: str, wake_words: list, fuzzy_pinyin: bool = False) -> dict:
+    """检查文本是否包含唤醒词
+    
+    Args:
+        text: 要检查的文本
+        wake_words: 唤醒词列表
+        fuzzy_pinyin: 是否启用拼音模糊匹配
+        
+    Returns:
+        dict: {
+            "has_wake_word": bool,
+            "matched_word": str,
+            "clean_text": str
+        }
+    """
+    import re
+    normalized_text = text.lower().strip()
+    
+    # 如果启用拼音模糊匹配，尝试导入 pypinyin
+    pinyin_available = False
+    if fuzzy_pinyin:
+        try:
+            from pypinyin import lazy_pinyin
+            pinyin_available = True
+            # 将文本转换为拼音
+            text_pinyin = ''.join(lazy_pinyin(normalized_text))
+            logger.debug(f"Pinyin conversion: '{normalized_text}' -> '{text_pinyin}'")
+        except ImportError:
+            logger.warning("pypinyin not installed, falling back to exact matching")
+            pinyin_available = False
+    
+    for wake_word in wake_words:
+        normalized_wake_word = wake_word.lower().strip()
+        
+        # 精确匹配：检查文本是否以唤醒词开头
+        if normalized_text.startswith(normalized_wake_word):
+            # 去掉唤醒词和可能的分隔符
+            clean_text = text[len(wake_word):].strip()
+            clean_text = re.sub(r'^[,，、。.!！?？\s]+', '', clean_text).strip()
+            
+            return {
+                "has_wake_word": True,
+                "matched_word": wake_word,
+                "clean_text": clean_text
+            }
+        
+        # 精确匹配：检查文本中间是否包含唤醒词
+        wake_word_index = normalized_text.find(normalized_wake_word)
+        if wake_word_index != -1:
+            clean_text = text[wake_word_index + len(wake_word):].strip()
+            clean_text = re.sub(r'^[,，、。.!！?？\s]+', '', clean_text).strip()
+            
+            return {
+                "has_wake_word": True,
+                "matched_word": wake_word,
+                "clean_text": clean_text
+            }
+        
+        # 拼音模糊匹配
+        if fuzzy_pinyin and pinyin_available:
+            wake_word_pinyin = ''.join(lazy_pinyin(normalized_wake_word))
+            logger.debug(f"Wake word pinyin: '{normalized_wake_word}' -> '{wake_word_pinyin}'")
+            
+            # 检查拼音是否匹配
+            pinyin_index = text_pinyin.find(wake_word_pinyin)
+            if pinyin_index != -1:
+                # 找到拼音匹配位置后，需要计算原文中对应的位置
+                # 逐字符累积拼音长度来定位
+                char_index = 0
+                pinyin_len_so_far = 0
+                
+                for i, char in enumerate(normalized_text):
+                    char_pinyin = ''.join(lazy_pinyin(char))
+                    if pinyin_len_so_far >= pinyin_index:
+                        char_index = i
+                        break
+                    pinyin_len_so_far += len(char_pinyin)
+                
+                # 计算唤醒词在原文中的结束位置
+                end_index = char_index
+                pinyin_len_of_word = 0
+                for i in range(char_index, len(normalized_text)):
+                    char_pinyin = ''.join(lazy_pinyin(normalized_text[i]))
+                    pinyin_len_of_word += len(char_pinyin)
+                    if pinyin_len_of_word >= len(wake_word_pinyin):
+                        end_index = i + 1
+                        break
+                
+                clean_text = text[end_index:].strip()
+                clean_text = re.sub(r'^[,，、。.!！?？\s]+', '', clean_text).strip()
+                
+                matched_original = text[char_index:end_index]
+                logger.info(f"Pinyin match: '{wake_word}' ({wake_word_pinyin}) matched '{matched_original}' in text")
+                
+                return {
+                    "has_wake_word": True,
+                    "matched_word": f"{wake_word}(~{matched_original})",
+                    "clean_text": clean_text
+                }
+    
+    return {
+        "has_wake_word": False,
+        "matched_word": "",
+        "clean_text": text
+    }
 
 
 async def finalize_conversation_turn(

@@ -87,6 +87,19 @@ async def process_group_conversation(
             initiator_client_uid=initiator_client_uid,
         )
 
+        # 检查输入是否有效（语音识别可能返回空字符串）
+        if not input_text:
+            logger.info("Empty input text in group conversation, ending early")
+            # 发送结束信号给所有成员
+            for member_uid in group_members:
+                try:
+                    await client_connections[member_uid].send_text(
+                        json.dumps({"type": "control", "text": "conversation-chain-end"})
+                    )
+                except Exception:
+                    pass
+            return
+
         # Check if we should skip storing this input to history
         skip_history = metadata and metadata.get("skip_history", False)
 
@@ -200,6 +213,11 @@ async def process_group_input(
     input_text = await process_user_input(
         user_input, initiator_context.asr_engine, initiator_ws_send
     )
+    
+    # 如果输入为空（语音识别失败），不广播
+    if not input_text:
+        return ""
+    
     await broadcast_transcription(
         broadcast_func, group_members, input_text, initiator_client_uid
     )

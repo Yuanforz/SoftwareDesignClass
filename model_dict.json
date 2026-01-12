@@ -26,5 +26,62 @@
                 "": 1
             }
         }
-    }
+    },
+    {
+        "name": "Hu Tao",
+        "description": "mihoyo模型Hu Tao",
+        "url": "/live2d-models/Hu Tao/Hu Tao.model3.json",
+        "kScale": 0.5,
+        "initialXshift": 0,
+        "initialYshift": 0,
+        "kXOffset": 0,
+        "idleMotionGroupName": "Idle",
+        "emotionMap": {
+            "neutral": 7,
+            "anger": 0,
+            "disgust": 3,
+            "fear": 2,
+            "joy": 7,
+            "smile": 7,
+            "sadness": 5,
+            "surprise": 4
+        },
+        "tapMotions": {
+             "HitAreaHead": {
+                "": 1
+            }
+        }
+    },
+    {
+        "name": "shizuku",
+        "description": "模型shizuku",
+        "url": "/live2d-models/shizuku/runtime/shizuku.model3.json",
+        "kScale": 0.5,
+        "initialXshift": 0,
+        "initialYshift": 0,
+        "kXOffset": 0,
+        "idleMotionGroupName": "Idle",
+        "emotionMap": {
+            "neutral": 0,
+            "anger": 0,
+            "disgust": 0,
+            "fear": 0,
+            "joy": 0,
+            "smirk": 0,
+            "sadness": 0,
+            "surprise": 0
+        },
+        "tapMotions": {
+            "HitAreaBody": {  
+                "FlickUp": 20,  
+                "Tap": 30,
+                "Flick3": 10
+            },
+            "HitAreaHead": {  
+                "FlickUp": 40,
+                "Tap": 20,
+                "Flick3": 30
+            }
+        }
+    }   
 ]

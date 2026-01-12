@@ -91,8 +91,13 @@
                 
                 <!-- 麦克风状态指示器 -->
                 <div id="mic-status">
-                    <span class="mic-icon">🎤</span>
-                    <span id="mic-text">语音监听中...</span>
+                    <div class="mic-status-row">
+                        <span class="mic-icon">🎤</span>
+                        <span id="mic-text">语音监听中...</span>
+                    </div>
+                    <div id="volume-container">
+                        <div id="volume-bar"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -123,6 +128,10 @@
             <button class="menu-item" data-action="upload" title="上传图片">
                 <span class="item-icon">📷</span>
                 <span class="item-label">上传</span>
+            </button>
+            <button class="menu-item menu-item-danger" data-action="quit" title="退出程序">
+                <span class="item-icon">🚪</span>
+                <span class="item-label">退出</span>
             </button>
         </div>
     </div>
@@ -199,6 +208,37 @@
                             多模态自动切换
                         </label>
                         <span class="setting-hint">纯文本用便宜模型，有图片时自动切换</span>
+                    </div>
+                </div>
+
+                <!-- 语音识别设置 -->
+                <div class="settings-section">
+                    <h4>🎤 语音识别</h4>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="wake-word-toggle">
+                            启用唤醒词
+                        </label>
+                        <span class="setting-hint">开启后需要先说唤醒词才会触发对话</span>
+                    </div>
+                    <div class="setting-item" id="wake-word-input-container">
+                        <label>唤醒词列表</label>
+                        <input type="text" id="wake-word-input" placeholder="灵犀,小灵,助教" class="text-input-small">
+                        <span class="setting-hint">多个唤醒词用逗号分隔</span>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="fuzzy-pinyin-toggle" checked>
+                            模糊拼音匹配
+                        </label>
+                        <span class="setting-hint">将唤醒词转为拼音匹配，容错同音字</span>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="voice-prompt-toggle" checked>
+                            语音提示词注入
+                        </label>
+                        <span class="setting-hint">语音输入时提示模型这是语音转译</span>
                     </div>
                 </div>
 

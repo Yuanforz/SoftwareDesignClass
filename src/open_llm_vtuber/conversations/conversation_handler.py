@@ -68,6 +68,11 @@ async def handle_conversation_trigger(
         user_input = received_data_buffers[client_uid]
         received_data_buffers[client_uid] = np.array([])
 
+    # 获取唤醒词配置（仅语音输入时有效）
+    wake_word_config = data.get("wake_word_config", None)
+    if wake_word_config:
+        logger.info(f"Wake word config: enabled={wake_word_config.get('enabled')}, words={wake_word_config.get('words')}")
+
     # 处理图片数据：将前端发送的 base64 字符串数组转换为后端期望的格式
     raw_images = data.get("images")
     images = None
@@ -135,6 +140,7 @@ async def handle_conversation_trigger(
                 images=images,
                 session_emoji=session_emoji,
                 metadata=metadata,
+                wake_word_config=wake_word_config,
             )
         )
 

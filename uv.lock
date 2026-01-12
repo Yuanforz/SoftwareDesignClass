@@ -1647,6 +1647,7 @@ dependencies = [
     { name = "openai" },
     { name = "pre-commit" },
     { name = "pydub" },
+    { name = "pypinyin" },
     { name = "pysbd" },
     { name = "pyttsx3" },
     { name = "pyyaml" },
@@ -1698,6 +1699,7 @@ requires-dist = [
     { name = "openai", specifier = ">=1.57.4" },
     { name = "pre-commit", specifier = ">=4.1.0" },
     { name = "pydub", specifier = ">=0.25.1" },
+    { name = "pypinyin", specifier = ">=0.53.0" },
     { name = "pysbd", specifier = ">=0.3.4" },
     { name = "pyttsx3", specifier = ">=2.98" },
     { name = "pyyaml", specifier = ">=6.0.2" },
@@ -4458,6 +4460,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/c9/49/6d3f87bff3fe4faa7ede13dcf61e8e9d309339047cd8872565daa8a0ef22/pyobjc_framework_WebKit-11.0-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:e1881d7443f916e49199fd9d4b109c19e3e063ab3a60e6d4d76299a3b9143ef6", size = 44940, upload-time = "2025-01-14T19:01:43.295Z" },
     { url = "https://files.pythonhosted.org/packages/47/63/6f04faa75c4c39c54007b256a8e13838c1de213d487f561937d342ec2eac/pyobjc_framework_WebKit-11.0-cp311-cp311-macosx_10_9_universal2.whl", hash = "sha256:163abaa5a665b59626ef20cdc3dcc5e2e3fcd9830d5fc328507e13f663acd0ed", size = 44940, upload-time = "2025-01-14T19:01:44.396Z" },
     { url = "https://files.pythonhosted.org/packages/3e/61/934f03510e7f49454fbf6eeff8ad2eca5d8bfbe71aa4b8a034f8132af2fa/pyobjc_framework_WebKit-11.0-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:2e4911519e94822011d99fdb9addf4a176f45a79808dab18dc303293f4590f7c", size = 44901, upload-time = "2025-01-14T19:01:45.476Z" },
+]
+
+[[package]]
+name = "pypinyin"
+version = "0.55.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b4/a4/784cf98c09e0dc22776b0d7d8a4a5b761218bcae4608c2416ce1e167c8af/pypinyin-0.55.0.tar.gz", hash = "sha256:b5711b3a0c6f76e67408ec6b2e3c4987a3a806b7c528076e7c7b86fcf0eaa66b", size = 839836, upload-time = "2025-07-20T12:01:50.657Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b9/7b/4cabc76fcc21c3c7d5c671d8783984d30ac9d3bb387c4ba784fca3cdfa3a/pypinyin-0.55.0-py2.py3-none-any.whl", hash = "sha256:d53b1e8ad2cdb815fb2cb604ed3123372f5a28c6f447571244aca36fc62a286f", size = 840203, upload-time = "2025-07-20T12:01:48.535Z" },
 ]
 
 [[package]]
