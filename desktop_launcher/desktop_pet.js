@@ -944,12 +944,23 @@ function handleMenuAction(action) {
         case 'clear':
             clearMessages();
             break;
-        case 'upload':
-            triggerFileUpload();
+        case 'minimize':
+            minimizeWindow();
             break;
         case 'quit':
             quitApplication();
             break;
+    }
+}
+
+// 最小化窗口
+function minimizeWindow() {
+    try {
+        const { ipcRenderer } = require('electron');
+        ipcRenderer.send('minimize-window');
+        console.log('🔽 窗口已最小化');
+    } catch (e) {
+        console.error('最小化失败:', e);
     }
 }
 
@@ -2068,7 +2079,15 @@ async function initLive2D() {
 }
 
 // 加载 Live2D 模型（从配置动态加载）
+let isLoadingModel = false;  // 防止重复加载的锁
+
 async function loadLive2DModel() {
+    // 防止重复加载
+    if (isLoadingModel) {
+        console.log('⏳ 模型正在加载中，跳过重复请求');
+        return;
+    }
+    
     try {
         if (!live2dApp) {
             console.warn('⚠️ PIXI 应用未创建，无法加载模型');
@@ -2080,9 +2099,19 @@ async function loadLive2DModel() {
             return;
         }
         
-        if (AppState.modelConfig.loaded) {
+        if (AppState.modelConfig.loaded && live2dModel) {
             console.log('ℹ️ 模型已加载，跳过');
             return;
+        }
+        
+        isLoadingModel = true;  // 设置锁
+        
+        // 如果舞台上有旧模型，先移除
+        if (live2dModel) {
+            live2dApp.stage.removeChild(live2dModel);
+            live2dModel.destroy();
+            live2dModel = null;
+            console.log('🗑️ 已移除旧模型');
         }
         
         // 构建完整的模型 URL
@@ -2097,7 +2126,8 @@ async function loadLive2DModel() {
         }
         
         live2dModel = await Live2DModel.from(modelUrl, {
-            autoInteract: false
+            autoInteract: false,  // 关闭自动交互，我们自己处理鼠标跟随
+            autoUpdate: true
         });
         
         console.log('✅ 模型加载完成');
@@ -2131,10 +2161,18 @@ async function loadLive2DModel() {
         
         // 点击事件
         live2dModel.on('pointerdown', (e) => {
-            console.log('👆 点击 Live2D 模型');
-            sendMessage({ type: 'interrupt-signal' });
-            stopAllAudio();
+            try {
+                console.log('👆 点击 Live2D 模型');
+                e.stopPropagation();  // 阻止事件冒泡
+                sendMessage({ type: 'interrupt-signal' });
+                stopAllAudio();
+            } catch (err) {
+                console.error('❌ 点击处理出错:', err);
+            }
         });
+        
+        // 启用鼠标跟随 - 监听整个窗口的鼠标移动
+        setupMouseTracking(live2dModel);
         
         console.log('✅ Live2D 模型加载完成');
         console.log('🎭 模型信息:', {
@@ -2147,7 +2185,82 @@ async function loadLive2DModel() {
     } catch (error) {
         console.error('❌ Live2D 模型加载失败:', error);
         showLive2DFallback('模型加载失败: ' + error.message);
+    } finally {
+        isLoadingModel = false;  // 释放锁
     }
+}
+
+// ==================== 鼠标跟随功能 ====================
+/**
+ * 设置 Live2D 模型的鼠标跟随
+ * 模型的眼睛和身体会跟随鼠标移动
+ * 使用 Electron IPC 获取全局鼠标位置
+ */
+let mouseTrackingInitialized = false;
+let mouseTrackingModel = null;
+
+function setupMouseTracking(model) {
+    console.log('👀 [setupMouseTracking] 开始设置，model:', !!model, 'focus:', model ? typeof model.focus : 'N/A');
+    
+    if (!model) {
+        console.warn('⚠️ 无法设置鼠标跟随：模型为空');
+        return;
+    }
+    
+    // 保存模型引用
+    mouseTrackingModel = model;
+    console.log('👀 [setupMouseTracking] 模型引用已保存');
+    
+    // 如果已经初始化过，只更新模型引用即可
+    if (mouseTrackingInitialized) {
+        console.log('👀 鼠标跟随已初始化，更新模型引用');
+        return;
+    }
+    
+    const { ipcRenderer } = require('electron');
+    
+    // 监听鼠标位置响应
+    let cursorLogCount = 0;
+    ipcRenderer.on('cursor-position', (event, pos) => {
+        // 每100次打印一次日志
+        cursorLogCount++;
+        if (cursorLogCount % 100 === 1) {
+            console.log('🖱️ [Renderer] 收到鼠标位置:', pos, 'model:', !!mouseTrackingModel, 'canvas:', !!live2dCanvas);
+        }
+        
+        if (!mouseTrackingModel || !live2dCanvas) return;
+        
+        try {
+            // focus() 方法需要的是**世界空间坐标**（屏幕坐标），不是归一化坐标
+            // 参考 Automator.ts 中的 onPointerMove：model.focus(event.global.x, event.global.y)
+            // relativeX/relativeY 是相对于窗口的坐标，可以直接使用
+            const focusX = pos.relativeX;
+            const focusY = pos.relativeY;
+            
+            // 使用 pixi-live2d-display 的 focus 方法
+            if (typeof mouseTrackingModel.focus === 'function') {
+                mouseTrackingModel.focus(focusX, focusY);
+                // 每100次打印一次focus调用日志
+                if (cursorLogCount % 100 === 1) {
+                    console.log('👀 [Focus] 调用 focus(', focusX, ',', focusY, ')');
+                }
+            } else {
+                if (cursorLogCount % 100 === 1) {
+                    console.log('❌ [Focus] model.focus 不是函数');
+                }
+            }
+        } catch (e) {
+            console.error('❌ [Focus] 错误:', e);
+        }
+    });
+    
+    // 定时请求鼠标位置
+    setInterval(() => {
+        ipcRenderer.send('get-cursor-position');
+    }, 50);
+    
+    mouseTrackingInitialized = true;
+    console.log('👀 鼠标跟随功能已启用');
 }
 
 // 显示备用占位符

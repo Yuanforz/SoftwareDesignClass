@@ -1,7 +1,8 @@
-const { app, BrowserWindow, screen, ipcMain, globalShortcut } = require('electron');
+const { app, BrowserWindow, screen, ipcMain, globalShortcut, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 
 let mainWindow = null;
+let tray = null;  // 系统托盘
 let isDesktopPetMode = true; // 默认启动为桌宠模式
 
 function createWindow() {
@@ -46,8 +47,9 @@ function createWindow() {
         mainWindow.loadURL('http://127.0.0.1:12393');
     } 
 
-    // 开发时可打开调试工具
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
+    // 开发时可打开调试工具（注意：DevTools 的 Elements 面板可能导致崩溃）
+    // 如需调试，取消下面这行注释：
+    // mainWindow.webContents.openDevTools({ mode: 'detach' });
 
     // 桌宠模式使用独立页面，不需要注入
     mainWindow.webContents.on('did-finish-load', () => {
@@ -64,8 +66,74 @@ function createWindow() {
         mainWindow = null;
     });
 
+    // 创建系统托盘
+    createTray();
+
     // 注册全局快捷键
     registerShortcuts();
+}
+
+// 创建系统托盘
+function createTray() {
+    // 从文件加载托盘图标
+    const iconPath = path.join(__dirname, 'icon.png');
+    let trayIcon;
+    
+    try {
+        trayIcon = nativeImage.createFromPath(iconPath);
+        // Windows 需要较小的图标
+        if (process.platform === 'win32' && !trayIcon.isEmpty()) {
+            trayIcon = trayIcon.resize({ width: 16, height: 16 });
+        }
+        console.log('托盘图标加载成功:', iconPath);
+    } catch (e) {
+        console.error('托盘图标加载失败:', e);
+        // 创建一个简单的备用图标
+        const iconBase64 = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAbwAAAG8B8aLcQwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAEISURBVDiNpZMxTsNAEEX/rO0IpYFGQscRuAI3oOEGnICGhtJHoKGgoKPgBnAESo5AQ0NBQYEEcuxdBmJZsb0JEn9baf7M29kdIwLBz/n7uPP7uYjYsX/E4fHJAXALPItIdF/YdJzLi4vRpyGQxkiI3aG/vn3B0/MzGxsb7O/s0O/3/4YQkeHoasTd/cPcRq8nxuNxSslf4NtbAAaDwdzr8fPzC8PhkMFgMKdx0sDj0+uSMDNarRZlWZJl2dSjhwb66G4pQlEUPL28sLu7C8DHxwfdbne+QKvVIkkSZr/nYW1tnelkwtLPXEXw+fmJJEnm+JIDkySh0+mQpumUyg9PqIiIS0T+q/sNEZZaBYFvfeoAAAAASUVORK5CYII=';
+        trayIcon = nativeImage.createFromDataURL('data:image/png;base64,' + iconBase64);
+        if (process.platform === 'win32') {
+            trayIcon = trayIcon.resize({ width: 16, height: 16 });
+        }
+    }
+    
+    tray = new Tray(trayIcon);
+    tray.setToolTip('灵犀助教');
+    
+    // 托盘右键菜单
+    const contextMenu = Menu.buildFromTemplate([
+        {
+            label: '显示窗口',
+            click: () => {
+                if (mainWindow) {
+                    mainWindow.show();
+                    mainWindow.focus();
+                }
+            }
+        },
+        { type: 'separator' },
+        {
+            label: '退出',
+            click: () => {
+                app.quit();
+            }
+        }
+    ]);
+    
+    tray.setContextMenu(contextMenu);
+    
+    // 点击托盘图标显示/隐藏窗口
+    tray.on('click', () => {
+        if (mainWindow) {
+            if (mainWindow.isVisible()) {
+                mainWindow.hide();
+            } else {
+                mainWindow.show();
+                mainWindow.focus();
+            }
+        }
+    });
+    
+    console.log('系统托盘已创建');
 }
 
 // 注入 Markdown 和 LaTeX 渲染功能
@@ -432,6 +500,33 @@ ipcMain.on('toggle-mode', () => {
 
 ipcMain.on('quit-app', () => {
     app.quit();
+});
+
+// 获取鼠标位置（用于 Live2D 鼠标跟随）
+let cursorLogCounter = 0;
+ipcMain.on('get-cursor-position', (event) => {
+    const cursorPos = screen.getCursorScreenPoint();
+    const winBounds = mainWindow ? mainWindow.getBounds() : { x: 0, y: 0 };
+    const posData = {
+        screenX: cursorPos.x,
+        screenY: cursorPos.y,
+        relativeX: cursorPos.x - winBounds.x,
+        relativeY: cursorPos.y - winBounds.y
+    };
+    // 每100次打印一次日志（避免刷屏）
+    cursorLogCounter++;
+    if (cursorLogCounter % 100 === 1) {
+        console.log('🖱️ [Main] 鼠标位置:', posData);
+    }
+    event.reply('cursor-position', posData);
+});
+
+// 最小化窗口（隐藏到托盘）
+ipcMain.on('minimize-window', () => {
+    if (mainWindow) {
+        mainWindow.hide();  // 隐藏到托盘而不是最小化
+        console.log('窗口已隐藏到托盘');
+    }
 });
 
 // 强制窗口获得焦点（修复 confirm 对话框后焦点丢失问题）
