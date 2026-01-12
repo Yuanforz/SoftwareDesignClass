@@ -434,6 +434,24 @@ ipcMain.on('quit-app', () => {
     app.quit();
 });
 
+// 强制窗口获得焦点（修复 confirm 对话框后焦点丢失问题）
+ipcMain.on('focus-window', () => {
+    if (mainWindow) {
+        // 多种方法确保窗口获得焦点
+        if (mainWindow.isMinimized()) {
+            mainWindow.restore();
+        }
+        mainWindow.show();
+        mainWindow.focus();
+        // Windows 特有：使用 setAlwaysOnTop 技巧强制获得焦点
+        const wasAlwaysOnTop = mainWindow.isAlwaysOnTop();
+        mainWindow.setAlwaysOnTop(true);
+        mainWindow.setAlwaysOnTop(wasAlwaysOnTop);
+        // 发送消息通知渲染进程聚焦输入框
+        mainWindow.webContents.send('do-focus-input');
+    }
+});
+
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {

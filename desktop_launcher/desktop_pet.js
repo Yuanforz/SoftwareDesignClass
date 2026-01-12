@@ -801,6 +801,71 @@ live2dSection.addEventListener('contextmenu', (e) => {
     showContextMenu(e.clientX, e.clientY);
 });
 
+// ==================== 自定义确认对话框 ====================
+// 替代原生 confirm()，避免 Electron 焦点丢失问题
+
+const confirmDialog = document.getElementById('confirm-dialog');
+const confirmDialogTitle = document.getElementById('confirm-dialog-title');
+const confirmDialogMessage = document.getElementById('confirm-dialog-message');
+const confirmDialogOk = document.getElementById('confirm-dialog-ok');
+const confirmDialogCancel = document.getElementById('confirm-dialog-cancel');
+
+let confirmResolve = null;
+
+/**
+ * 显示自定义确认对话框
+ * @param {string} message - 提示消息
+ * @param {string} title - 标题（可选）
+ * @returns {Promise<boolean>} - 用户选择结果
+ */
+function showConfirmDialog(message, title = '确认') {
+    return new Promise((resolve) => {
+        confirmResolve = resolve;
+        confirmDialogTitle.textContent = title;
+        confirmDialogMessage.textContent = message;
+        confirmDialog.classList.remove('hidden');
+        
+        // 聚焦到确定按钮
+        setTimeout(() => confirmDialogOk.focus(), 50);
+    });
+}
+
+function hideConfirmDialog(result) {
+    confirmDialog.classList.add('hidden');
+    if (confirmResolve) {
+        confirmResolve(result);
+        confirmResolve = null;
+    }
+    
+    // 聚焦输入框
+    setTimeout(() => {
+        const textInput = document.getElementById('text-input');
+        if (textInput) {
+            textInput.focus();
+        }
+    }, 50);
+}
+
+// 确认对话框事件
+confirmDialogOk.addEventListener('click', () => hideConfirmDialog(true));
+confirmDialogCancel.addEventListener('click', () => hideConfirmDialog(false));
+
+// 支持键盘操作
+confirmDialog.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        hideConfirmDialog(true);
+    } else if (e.key === 'Escape') {
+        hideConfirmDialog(false);
+    }
+});
+
+// 点击背景关闭（视为取消）
+confirmDialog.addEventListener('click', (e) => {
+    if (e.target === confirmDialog) {
+        hideConfirmDialog(false);
+    }
+});
+
 // ==================== 圆形右键菜单 ====================
 const contextMenu = document.getElementById('context-menu');
 
@@ -858,8 +923,9 @@ function handleMenuAction(action) {
 }
 
 // 退出应用程序
-function quitApplication() {
-    if (confirm('确定要退出灵犀助教吗？')) {
+async function quitApplication() {
+    const confirmed = await showConfirmDialog('确定要退出灵犀助教吗？', '退出确认');
+    if (confirmed) {
         // 尝试通过 Electron IPC 退出
         if (window.electronAPI && window.electronAPI.quit) {
             window.electronAPI.quit();
@@ -877,6 +943,7 @@ function quitApplication() {
             window.close();
         }
     }
+    // 用户取消退出，焦点自动恢复（hideConfirmDialog 已处理）
 }
 
 // ==================== 功能实现 ====================
@@ -1386,8 +1453,9 @@ function updateMicStatus(enabled) {
 }
 
 // 清空对话
-function clearMessages() {
-    if (confirm('确定要清空当前对话吗？')) {
+async function clearMessages() {
+    const confirmed = await showConfirmDialog('确定要清空当前对话吗？', '清空对话');
+    if (confirmed) {
         // 保留欢迎消息
         const welcomeMsg = messagesContainer.querySelector('.message.welcome');
         messagesContainer.innerHTML = '';
@@ -1397,7 +1465,11 @@ function clearMessages() {
         
         // 通知后端清空历史
         sendMessage({ type: 'create-new-history' });
+        
+        // 显示输入框
+        inputArea.classList.remove('hidden');
     }
+    // 对话框关闭后焦点自动恢复到输入框（hideConfirmDialog 已处理）
 }
 
 // ==================== 模态窗口管理 ====================

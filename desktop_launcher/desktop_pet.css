@@ -647,6 +647,56 @@ body {
     overflow-y: auto;
 }
 
+/* ==================== 自定义确认对话框 ==================== */
+.confirm-dialog-content {
+    max-width: 350px;
+    text-align: center;
+}
+
+.confirm-dialog-content .modal-header {
+    border-bottom: none;
+    justify-content: center;
+    padding-bottom: 10px;
+}
+
+.confirm-dialog-content .modal-body {
+    padding-top: 0;
+    padding-bottom: 20px;
+}
+
+.confirm-dialog-content .modal-body p {
+    color: #555;
+    font-size: 15px;
+    line-height: 1.5;
+}
+
+.confirm-dialog-buttons {
+    display: flex;
+    gap: 12px;
+    padding: 0 20px 20px;
+    justify-content: center;
+}
+
+.confirm-dialog-buttons button {
+    padding: 10px 28px;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    min-width: 100px;
+}
+
+.secondary-btn {
+    background: #f0f0f0;
+    border: 1px solid #ddd;
+    color: #555;
+}
+
+.secondary-btn:hover {
+    background: #e5e5e5;
+    border-color: #ccc;
+}
+
 /* 历史记录列表 */
 #history-list {
     display: flex;

@@ -260,6 +260,22 @@
     <!-- 隐藏的文件上传输入框（支持图片和PDF） -->
     <input type="file" id="file-input" accept="image/*,.pdf" multiple style="display: none;">
 
+    <!-- 自定义确认对话框（替代原生confirm，避免焦点丢失） -->
+    <div id="confirm-dialog" class="modal hidden">
+        <div class="modal-content confirm-dialog-content">
+            <div class="modal-header">
+                <h3 id="confirm-dialog-title">确认</h3>
+            </div>
+            <div class="modal-body">
+                <p id="confirm-dialog-message">确定要执行此操作吗？</p>
+            </div>
+            <div class="confirm-dialog-buttons">
+                <button id="confirm-dialog-cancel" class="secondary-btn">取消</button>
+                <button id="confirm-dialog-ok" class="primary-btn">确定</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 主逻辑脚本 -->
     <script src="desktop_pet.js"></script>
 </body>
