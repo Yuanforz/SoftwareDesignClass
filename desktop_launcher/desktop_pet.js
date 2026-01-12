@@ -47,6 +47,7 @@ const AppState = {
         wakeWords: ['灵犀', '小灵', '助教'],  // 唤醒词列表
         fuzzyPinyinMatch: true,       // 是否启用模糊拼音匹配
         voicePromptInjection: true,   // 是否启用语音提示词注入
+        voiceInterruptEnabled: true,  // 是否启用语音打断（说话时打断 AI 回复）
     }
 };
 
@@ -967,8 +968,15 @@ function loadWakeWordSettings() {
         vr.voicePromptInjection = savedVoicePrompt === 'true';
     }
     
+    // 加载语音打断设置
+    const savedVoiceInterrupt = localStorage.getItem('voiceInterruptEnabled');
+    if (savedVoiceInterrupt !== null) {
+        vr.voiceInterruptEnabled = savedVoiceInterrupt === 'true';
+    }
+    
     console.log(`🎤 唤醒词设置: ${vr.wakeWordEnabled ? '启用' : '禁用'}, 词汇: ${vr.wakeWords.join('/')}`);
     console.log(`🎤 模糊拼音: ${vr.fuzzyPinyinMatch ? '启用' : '禁用'}, 语音注入: ${vr.voicePromptInjection ? '启用' : '禁用'}`);
+    console.log(`🎤 语音打断: ${vr.voiceInterruptEnabled ? '启用' : '禁用'}`);
 }
 
 // ==================== 麦克风录音模块 ====================
@@ -1223,6 +1231,13 @@ const VoiceRecorder = {
         
         const vr = AppState.voiceRecording;
         
+        // 如果启用了语音打断，先发送打断信号并停止音频
+        if (vr.voiceInterruptEnabled) {
+            console.log('🛑 语音打断: 发送打断信号');
+            sendMessage({ type: 'interrupt-signal' });
+            stopAllAudio();
+        }
+        
         // 发送音频数据（Float32Array 格式）
         const audioArray = Array.from(audioData);
         
@@ -1425,6 +1440,7 @@ function showSettingsModal() {
     document.getElementById('wake-word-input').value = vr.wakeWords.join(',');
     document.getElementById('fuzzy-pinyin-toggle').checked = vr.fuzzyPinyinMatch;
     document.getElementById('voice-prompt-toggle').checked = vr.voicePromptInjection;
+    document.getElementById('voice-interrupt-toggle').checked = vr.voiceInterruptEnabled;
     
     // 根据唤醒词开关状态显示/隐藏输入框
     updateWakeWordInputVisibility();
@@ -1476,6 +1492,7 @@ document.getElementById('save-settings-btn').addEventListener('click', () => {
     vr.wakeWordEnabled = document.getElementById('wake-word-toggle').checked;
     vr.fuzzyPinyinMatch = document.getElementById('fuzzy-pinyin-toggle').checked;
     vr.voicePromptInjection = document.getElementById('voice-prompt-toggle').checked;
+    vr.voiceInterruptEnabled = document.getElementById('voice-interrupt-toggle').checked;
     const wakeWordInput = document.getElementById('wake-word-input').value.trim();
     if (wakeWordInput) {
         vr.wakeWords = wakeWordInput.split(',').map(w => w.trim()).filter(w => w.length > 0);
@@ -1486,6 +1503,7 @@ document.getElementById('save-settings-btn').addEventListener('click', () => {
     localStorage.setItem('wakeWords', JSON.stringify(vr.wakeWords));
     localStorage.setItem('fuzzyPinyinMatch', vr.fuzzyPinyinMatch);
     localStorage.setItem('voicePromptInjection', vr.voicePromptInjection);
+    localStorage.setItem('voiceInterruptEnabled', vr.voiceInterruptEnabled);
     
     // 发送到后端保存
     sendMessage({
